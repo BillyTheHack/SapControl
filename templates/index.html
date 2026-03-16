@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Water Controller</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3a;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --accent: #3b82f6;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+      --radius: 10px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      padding: 24px 16px;
+    }
+
+    h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
+    h2 { font-size: 1rem; font-weight: 600; color: var(--muted); text-transform: uppercase;
+         letter-spacing: .06em; margin-bottom: 14px; }
+
+    .layout { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+    .subtitle { color: var(--muted); font-size: .85rem; margin-bottom: 24px; }
+
+    /* Cards */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 22px;
+    }
+
+    /* Status bar */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: .82rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    .badge-running { background: #14532d55; color: var(--green); border: 1px solid #166534; }
+    .badge-stopped { background: #7f1d1d44; color: var(--red); border: 1px solid #991b1b; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot-green { background: var(--green); animation: pulse-green 2s infinite; }
+    .dot-red   { background: var(--red); }
+
+    @keyframes pulse-green {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .4; }
+    }
+
+    .btn-row { display: flex; gap: 10px; margin-left: auto; flex-wrap: wrap; }
+    .btn {
+      cursor: pointer;
+      border: none;
+      border-radius: 7px;
+      padding: 8px 18px;
+      font-size: .875rem;
+      font-weight: 600;
+      transition: opacity .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-start { background: var(--green); color: #052e16; }
+    .btn-stop  { background: var(--red);   color: #fff; }
+    .btn-save  { background: var(--accent); color: #fff; }
+
+    /* GPIO monitor */
+    .gpio-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .gpio-item {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .gpio-role { font-size: .72rem; font-weight: 700; text-transform: uppercase;
+                 letter-spacing: .07em; color: var(--muted); }
+    .gpio-label { font-size: .95rem; font-weight: 600; }
+    .gpio-pin   { font-size: .8rem; color: var(--muted); }
+    .gpio-state {
+      margin-top: 4px;
+      font-size: .82rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 5px;
+      display: inline-block;
+      width: fit-content;
+    }
+    .state-high { background: #14532d55; color: var(--green); border: 1px solid #166534; }
+    .state-low  { background: #1e293b;   color: var(--muted); border: 1px solid var(--border); }
+    .state-unknown { background: #1e293b; color: var(--muted); border: 1px solid var(--border); }
+
+    /* Config form */
+    .form-grid { display: grid; gap: 16px; }
+    .form-row { display: grid; gap: 6px; }
+    label { font-size: .82rem; font-weight: 600; color: var(--muted); }
+    input[type="number"], input[type="text"] {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: .9rem;
+      padding: 8px 12px;
+      width: 100%;
+      outline: none;
+      transition: border-color .15s;
+    }
+    input:focus { border-color: var(--accent); }
+
+    .valve-list { display: flex; flex-direction: column; gap: 10px; }
+    .valve-entry { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .valve-entry .small-label { font-size: .75rem; color: var(--muted); grid-column: span 2; }
+
+    .btn-add-valve {
+      background: none;
+      border: 1px dashed var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: .82rem;
+      padding: 6px;
+      text-align: center;
+      transition: border-color .15s, color .15s;
+    }
+    .btn-add-valve:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-remove-valve {
+      background: none;
+      border: none;
+      color: var(--red);
+      cursor: pointer;
+      font-size: 1.1rem;
+      padding: 0 4px;
+      align-self: end;
+      grid-column: span 2;
+      text-align: right;
+    }
+
+    .feedback {
+      font-size: .82rem;
+      padding: 8px 12px;
+      border-radius: 6px;
+      display: none;
+    }
+    .feedback.ok    { background: #14532d55; color: var(--green); display: block; }
+    .feedback.error { background: #7f1d1d44; color: var(--red);   display: block; }
+
+    /* Divider */
+    hr { border: none; border-top: 1px solid var(--border); margin: 4px 0 16px; }
+
+    /* Connection indicator */
+    #conn-indicator {
+      font-size: .75rem;
+      color: var(--muted);
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <div>
+    <h1>Water Controller</h1>
+    <p class="subtitle">GPIO-based water level control &amp; valve management</p>
+  </div>
+
+  <!-- Status + controls -->
+  <div class="card">
+    <h2>Task Control</h2>
+    <div class="status-bar">
+      <span id="task-badge" class="badge badge-stopped">
+        <span id="task-dot" class="dot dot-red"></span>
+        <span id="task-label">Stopped</span>
+      </span>
+      <div class="btn-row">
+        <button id="btn-start" class="btn btn-start" onclick="taskAction('start')">Start</button>
+        <button id="btn-stop"  class="btn btn-stop"  onclick="taskAction('stop')" disabled>Stop</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- GPIO monitor -->
+  <div class="card">
+    <h2>GPIO Monitor</h2>
+    <div id="gpio-grid" class="gpio-grid">
+      <p style="color:var(--muted);font-size:.85rem">Loading GPIO state…</p>
+    </div>
+    <p id="conn-indicator">Connecting…</p>
+  </div>
+
+  <!-- Configuration -->
+  <div class="card">
+    <h2>Configuration</h2>
+    <div class="form-grid">
+
+      <!-- Sensor -->
+      <div class="form-row">
+        <label for="sensor-label">Sensor label</label>
+        <input type="text" id="sensor-label" placeholder="Water Level Sensor" />
+      </div>
+      <div class="form-row">
+        <label for="sensor-gpio">Sensor GPIO (BCM pin)</label>
+        <input type="number" id="sensor-gpio" min="1" max="27" placeholder="17" />
+      </div>
+
+      <hr />
+
+      <!-- Valves -->
+      <div>
+        <label style="display:block;margin-bottom:8px">Valves (relay GPIOs)</label>
+        <div id="valve-list" class="valve-list"></div>
+        <button class="btn-add-valve" onclick="addValve()">+ Add valve</button>
+      </div>
+
+      <hr />
+
+      <!-- Poll interval -->
+      <div class="form-row">
+        <label for="poll-interval">Poll interval (ms)</label>
+        <input type="number" id="poll-interval" min="100" max="10000" step="100" placeholder="500" />
+      </div>
+
+      <div id="config-feedback" class="feedback"></div>
+      <button class="btn btn-save" onclick="saveConfig()">Save configuration</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
