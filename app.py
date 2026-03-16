@@ -80,10 +80,12 @@ def validate_config(data: dict) -> tuple[dict | None, str | None]:
 
         # Preserve all pin/label fields from the existing config unchanged
         return {
-            "sensor_gpios":   existing["sensor_gpios"],
-            "valve_gpios":    existing["valve_gpios"],
-            "sensor_labels":  existing["sensor_labels"],
-            "valve_labels":   existing["valve_labels"],
+            "sensor_gpios":        existing["sensor_gpios"],
+            "valve_gpios":         existing["valve_gpios"],
+            "sensor_labels":       existing["sensor_labels"],
+            "valve_labels":        existing["valve_labels"],
+            "default_valve_states": existing.get("default_valve_states",
+                                        [0] * len(existing["valve_gpios"])),
             "poll_interval_ms": interval,
         }, None
 

@@ -119,14 +119,47 @@ def stop() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Valve helpers
+# ---------------------------------------------------------------------------
+def _set_valves(valve_pins: list[int], states: list[int]) -> None:
+    """Write a HIGH/LOW value to each valve pin. len(states) must equal len(valve_pins)."""
+    for pin, state in zip(valve_pins, states):
+        GPIO.output(pin, state)
+
+
+def _apply_default_state(valve_pins: list[int], config: dict) -> None:
+    """Return all valves to the configured default state."""
+    defaults = config.get("default_valve_states", [0] * len(valve_pins))
+    # Pad with 0 if fewer defaults than valves
+    defaults = list(defaults) + [0] * (len(valve_pins) - len(defaults))
+    _set_valves(valve_pins, defaults)
+    logger.info("Valves set to default state: %s", dict(zip(valve_pins, defaults)))
+
+
+# ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
+
+# State machine states
+_IDLE    = "IDLE"     # waiting for top sensor to trigger
+_FILLING = "FILLING"  # top triggered, waiting for bottom sensor
+
+
 def _run(config: dict):
     global _running
 
     sensor_pins: list[int] = config["sensor_gpios"]
-    valve_pins: list[int] = config["valve_gpios"]
-    interval: float = config.get("poll_interval_ms", 500) / 1000.0
+    valve_pins:  list[int] = config["valve_gpios"]
+    interval:    float     = config.get("poll_interval_ms", 500) / 1000.0
+
+    # Named pin references (by index matching config.json order)
+    # sensor_pins[0] = top sensor    (GPIO 8)
+    # sensor_pins[1] = bottom sensor (GPIO 7)
+    # valve_pins[0]  = Valve Air         (GPIO 14)
+    # valve_pins[1]  = Valve Vacuum      (GPIO 15)
+    # valve_pins[2]  = Valve Water Pump  (GPIO 18)
+    # valve_pins[3]  = Valve Maple Trees (GPIO 24)
+    # valve_pins[4]  = Water Pump        (GPIO 25)
 
     # --- GPIO setup ---------------------------------------------------------
     for pin in sensor_pins:
@@ -135,10 +168,16 @@ def _run(config: dict):
         GPIO.setup(pin, GPIO.OUT, initial=GPIO.LOW)
 
     logger.info(
-        f"Task running — sensors: {['GPIO' + str(p) for p in sensor_pins]}, "
-        f"valves: {['GPIO' + str(p) for p in valve_pins]}, "
-        f"interval: {interval}s"
+        "Task running — sensors: %s, valves: %s, interval: %.3fs",
+        [f"GPIO{p}" for p in sensor_pins],
+        [f"GPIO{p}" for p in valve_pins],
+        interval,
     )
+
+    # Apply default state at startup
+    _apply_default_state(valve_pins, config)
+
+    state = _IDLE
 
     try:
         while _running:
@@ -153,36 +192,52 @@ def _run(config: dict):
                     _gpio_states[f"gpio_{pin}"] = val
 
             # ----------------------------------------------------------------
-            # >>> YOUR LOGIC HERE <<<
+            # State machine
             #
-            # You have access to:
-            #   sensor_values       — list of int (0 or 1), one per sensor pin
-            #   sensor_pins         — list of int, BCM pin numbers for sensors
-            #   valve_pins          — list of int, BCM pin numbers for valves
-            #   config              — full config dict from config.json
+            # IDLE:
+            #   Wait for top sensor (sensor_pins[0]) to trigger (HIGH).
+            #   When triggered → switch valves for filling and enter FILLING.
             #
-            # To control a valve relay:
-            #   GPIO.output(valve_pins[0], GPIO.HIGH)   # open / energise
-            #   GPIO.output(valve_pins[0], GPIO.LOW)    # close / de-energise
-            #
-            # Example skeleton (single sensor):
-            #   if sensor_values[0] == 1:   # sensor triggered
-            #       GPIO.output(valve_pins[0], GPIO.HIGH)
-            #   else:
-            #       GPIO.output(valve_pins[0], GPIO.LOW)
+            # FILLING:
+            #   Wait for bottom sensor (sensor_pins[1]) to trigger (HIGH).
+            #   When triggered → switch valves back and return to IDLE.
+            #   If _running is cleared while in FILLING the finally block
+            #   handles the reset, so no special case is needed here.
             # ----------------------------------------------------------------
+
+            sensor_top    = sensor_values[0]
+            sensor_bottom = sensor_values[1]
+
+            if state == _IDLE:
+                if sensor_top == GPIO.HIGH:
+                    logger.info("Top sensor triggered — starting fill sequence")
+                    # valve_pins order: Air, Vacuum, Water Pump, Maple Trees, Water Pump relay
+                    GPIO.output(valve_pins[3], GPIO.LOW)   # close Maple Trees
+                    GPIO.output(valve_pins[2], GPIO.HIGH)  # open  Water Pump valve
+                    GPIO.output(valve_pins[1], GPIO.LOW)   # close Vacuum
+                    GPIO.output(valve_pins[0], GPIO.HIGH)  # open  Air
+                    GPIO.output(valve_pins[4], GPIO.HIGH)  # enable Water Pump relay
+                    state = _FILLING
+                    logger.info("State → FILLING")
+
+            elif state == _FILLING:
+                if sensor_bottom == GPIO.HIGH:
+                    logger.info("Bottom sensor triggered — ending fill sequence")
+                    GPIO.output(valve_pins[4], GPIO.LOW)   # disable Water Pump relay
+                    GPIO.output(valve_pins[0], GPIO.LOW)   # close Air
+                    GPIO.output(valve_pins[2], GPIO.LOW)   # close Water Pump valve
+                    GPIO.output(valve_pins[1], GPIO.HIGH)  # open  Vacuum
+                    GPIO.output(valve_pins[3], GPIO.HIGH)  # open  Maple Trees
+                    state = _IDLE
+                    logger.info("State → IDLE")
 
             time.sleep(interval)
 
     except Exception:
         logger.exception("Unhandled exception in background task")
     finally:
-        # De-energise all valves and release pins on exit
-        for pin in valve_pins:
-            try:
-                GPIO.output(pin, GPIO.LOW)
-            except Exception:
-                pass
+        # Always restore valves to their configured default state on exit
+        _apply_default_state(valve_pins, config)
         GPIO.cleanup(sensor_pins + valve_pins)
         _running = False
         logger.info("Background task stopped, GPIO cleaned up")
