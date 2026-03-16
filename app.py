@@ -38,9 +38,9 @@ app = Flask(__name__)
 CONFIG_PATH = Path(__file__).parent / "config.json"
 
 DEFAULT_CONFIG = {
-    "sensor_gpio": 17,
+    "sensor_gpios": [17],
     "valve_gpios": [27, 22],
-    "sensor_label": "Water Level Sensor",
+    "sensor_labels": ["Water Level Sensor"],
     "valve_labels": ["Inlet Valve", "Outlet Valve"],
     "poll_interval_ms": 500,
 }
@@ -66,35 +66,24 @@ def save_config(config: dict) -> None:
 
 
 def validate_config(data: dict) -> tuple[dict | None, str | None]:
-    """Return (cleaned_config, error_message)."""
-    try:
-        sensor = int(data["sensor_gpio"])
-        valves = [int(p) for p in data["valve_gpios"]]
-        interval = int(data.get("poll_interval_ms", 500))
+    """Return (cleaned_config, error_message).
 
-        if not (1 <= sensor <= 27):
-            return None, "sensor_gpio must be a valid BCM pin (1-27)"
-        if not valves:
-            return None, "valve_gpios must contain at least one pin"
-        if sensor in valves:
-            return None, "sensor_gpio must not overlap with valve_gpios"
+    The web UI may only submit poll_interval_ms.  All pin/label fields come
+    from config.json directly and are kept as-is.
+    """
+    try:
+        existing = load_config()
+        interval = int(data.get("poll_interval_ms", existing.get("poll_interval_ms", 500)))
+
         if not (100 <= interval <= 10000):
             return None, "poll_interval_ms must be between 100 and 10000"
 
-        # Normalise labels to match pin count
-        existing = load_config()
-        sensor_label = str(data.get("sensor_label", existing.get("sensor_label", "Sensor")))
-        raw_labels = data.get("valve_labels", existing.get("valve_labels", []))
-        valve_labels = [
-            str(raw_labels[i]) if i < len(raw_labels) else f"Valve {i + 1}"
-            for i in range(len(valves))
-        ]
-
+        # Preserve all pin/label fields from the existing config unchanged
         return {
-            "sensor_gpio": sensor,
-            "valve_gpios": valves,
-            "sensor_label": sensor_label,
-            "valve_labels": valve_labels,
+            "sensor_gpios":   existing["sensor_gpios"],
+            "valve_gpios":    existing["valve_gpios"],
+            "sensor_labels":  existing["sensor_labels"],
+            "valve_labels":   existing["valve_labels"],
             "poll_interval_ms": interval,
         }, None
 

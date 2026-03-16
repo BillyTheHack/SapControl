@@ -30,15 +30,33 @@ async function loadConfig() {
 }
 
 function renderConfigForm(cfg) {
-  document.getElementById('sensor-label').value = cfg.sensor_label ?? '';
-  document.getElementById('sensor-gpio').value  = cfg.sensor_gpio ?? 17;
   document.getElementById('poll-interval').value = cfg.poll_interval_ms ?? 500;
 
-  const valves = cfg.valve_gpios ?? [];
-  const labels = cfg.valve_labels ?? [];
-  const list = document.getElementById('valve-list');
-  list.innerHTML = '';
-  valves.forEach((pin, i) => addValve(pin, labels[i] ?? `Valve ${i + 1}`));
+  const table = document.getElementById('pin-table');
+  table.innerHTML = '';
+
+  const sensors = cfg.sensor_gpios  ?? [];
+  const slabels = cfg.sensor_labels ?? [];
+  sensors.forEach((pin, i) => {
+    table.appendChild(makePinRow('Sensor', pin, slabels[i] ?? `Sensor ${i + 1}`));
+  });
+
+  const valves  = cfg.valve_gpios  ?? [];
+  const vlabels = cfg.valve_labels ?? [];
+  valves.forEach((pin, i) => {
+    table.appendChild(makePinRow('Valve', pin, vlabels[i] ?? `Valve ${i + 1}`));
+  });
+}
+
+function makePinRow(role, pin, name) {
+  const div = document.createElement('div');
+  div.className = 'pin-row';
+  div.innerHTML = `
+    <span class="pin-role">${escapeHTML(role)}</span>
+    <span class="pin-num">GPIO ${pin}</span>
+    <span class="pin-name">${escapeHTML(name)}</span>
+  `;
+  return div;
 }
 
 async function saveConfig() {
@@ -66,63 +84,9 @@ async function saveConfig() {
 }
 
 function readFormConfig() {
-  const sensorGpio  = parseInt(document.getElementById('sensor-gpio').value, 10);
-  const sensorLabel = document.getElementById('sensor-label').value.trim() || 'Sensor';
-  const interval    = parseInt(document.getElementById('poll-interval').value, 10);
-
-  const valveEntries = document.querySelectorAll('.valve-entry');
-  const valveGpios  = [];
-  const valveLabels = [];
-
-  for (const entry of valveEntries) {
-    const pin   = parseInt(entry.querySelector('.valve-pin').value, 10);
-    const label = entry.querySelector('.valve-label').value.trim() || `Valve ${valveGpios.length + 1}`;
-    if (isNaN(pin)) {
-      showFeedback('error', 'All valve GPIO pins must be valid numbers.');
-      return null;
-    }
-    valveGpios.push(pin);
-    valveLabels.push(label);
-  }
-
-  if (!valveGpios.length) {
-    showFeedback('error', 'Add at least one valve.');
-    return null;
-  }
-
-  return {
-    sensor_gpio: sensorGpio,
-    sensor_label: sensorLabel,
-    valve_gpios: valveGpios,
-    valve_labels: valveLabels,
-    poll_interval_ms: interval,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Valve form rows
-// ---------------------------------------------------------------------------
-function addValve(pin = '', label = '') {
-  const list = document.getElementById('valve-list');
-  const div = document.createElement('div');
-  div.className = 'valve-entry';
-
-  const idx = list.children.length + 1;
-  div.innerHTML = `
-    <span class="small-label">Valve ${idx}</span>
-    <input class="valve-label" type="text"   placeholder="Label"    value="${escapeAttr(label)}" />
-    <input class="valve-pin"  type="number" placeholder="GPIO pin" value="${escapeAttr(String(pin))}" min="1" max="27" />
-    <button class="btn-remove-valve" onclick="removeValve(this)" title="Remove">&#x2715;</button>
-  `;
-  list.appendChild(div);
-}
-
-function removeValve(btn) {
-  btn.closest('.valve-entry').remove();
-  // Re-number labels
-  document.querySelectorAll('.valve-entry .small-label').forEach((el, i) => {
-    el.textContent = `Valve ${i + 1}`;
-  });
+  // Only poll_interval_ms is user-editable; everything else is preserved server-side.
+  const interval = parseInt(document.getElementById('poll-interval').value, 10);
+  return { poll_interval_ms: interval };
 }
 
 // ---------------------------------------------------------------------------
@@ -183,13 +147,16 @@ function renderGpioGrid(cfg, states) {
   const grid = document.getElementById('gpio-grid');
   grid.innerHTML = '';
 
-  const sensorPin = cfg.sensor_gpio;
-  grid.appendChild(makeGpioItem(
-    'Sensor',
-    cfg.sensor_label ?? 'Sensor',
-    sensorPin,
-    states[`gpio_${sensorPin}`],
-  ));
+  const sensors = cfg.sensor_gpios  ?? [];
+  const slabels = cfg.sensor_labels ?? [];
+  sensors.forEach((pin, i) => {
+    grid.appendChild(makeGpioItem(
+      'Sensor',
+      slabels[i] ?? `Sensor ${i + 1}`,
+      pin,
+      states[`gpio_${pin}`],
+    ));
+  });
 
   const valves  = cfg.valve_gpios  ?? [];
   const vlabels = cfg.valve_labels ?? [];
@@ -294,6 +261,3 @@ function escapeHTML(str) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function escapeAttr(str) {
-  return String(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}

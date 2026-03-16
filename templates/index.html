@@ -125,7 +125,7 @@
     .form-grid { display: grid; gap: 16px; }
     .form-row { display: grid; gap: 6px; }
     label { font-size: .82rem; font-weight: 600; color: var(--muted); }
-    input[type="number"], input[type="text"] {
+    input[type="number"] {
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 6px;
@@ -136,35 +136,27 @@
       outline: none;
       transition: border-color .15s;
     }
-    input:focus { border-color: var(--accent); }
+    input[type="number"]:focus { border-color: var(--accent); }
 
-    .valve-list { display: flex; flex-direction: column; gap: 10px; }
-    .valve-entry { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .valve-entry .small-label { font-size: .75rem; color: var(--muted); grid-column: span 2; }
-
-    .btn-add-valve {
-      background: none;
-      border: 1px dashed var(--border);
+    /* Read-only pin/label table */
+    .pin-table { display: flex; flex-direction: column; gap: 6px; }
+    .pin-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
       border-radius: 6px;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: .82rem;
-      padding: 6px;
-      text-align: center;
-      transition: border-color .15s, color .15s;
+      padding: 8px 12px;
+      font-size: .875rem;
     }
-    .btn-add-valve:hover { border-color: var(--accent); color: var(--accent); }
-    .btn-remove-valve {
-      background: none;
-      border: none;
-      color: var(--red);
-      cursor: pointer;
-      font-size: 1.1rem;
-      padding: 0 4px;
-      align-self: end;
-      grid-column: span 2;
-      text-align: right;
+    .pin-role {
+      font-size: .7rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--muted); min-width: 50px;
     }
+    .pin-num  { font-family: monospace; color: var(--accent); min-width: 80px; }
+    .pin-name { color: var(--text); }
+    .pin-hint { font-size: .75rem; color: var(--muted); font-style: italic; margin-top: 4px; }
 
     .feedback {
       font-size: .82rem;
@@ -223,35 +215,23 @@
     <h2>Configuration</h2>
     <div class="form-grid">
 
-      <!-- Sensor -->
-      <div class="form-row">
-        <label for="sensor-label">Sensor label</label>
-        <input type="text" id="sensor-label" placeholder="Water Level Sensor" />
-      </div>
-      <div class="form-row">
-        <label for="sensor-gpio">Sensor GPIO (BCM pin)</label>
-        <input type="number" id="sensor-gpio" min="1" max="27" placeholder="17" />
-      </div>
-
-      <hr />
-
-      <!-- Valves -->
+      <!-- Pin summary (read-only) -->
       <div>
-        <label style="display:block;margin-bottom:8px">Valves (relay GPIOs)</label>
-        <div id="valve-list" class="valve-list"></div>
-        <button class="btn-add-valve" onclick="addValve()">+ Add valve</button>
+        <label style="display:block;margin-bottom:8px">GPIO pins</label>
+        <div id="pin-table" class="pin-table"></div>
+        <p class="pin-hint">Edit config.json to change pins or labels, then restart the server.</p>
       </div>
 
       <hr />
 
-      <!-- Poll interval -->
+      <!-- Poll interval (the only editable setting) -->
       <div class="form-row">
         <label for="poll-interval">Poll interval (ms)</label>
         <input type="number" id="poll-interval" min="100" max="10000" step="100" placeholder="500" />
       </div>
 
       <div id="config-feedback" class="feedback"></div>
-      <button class="btn btn-save" onclick="saveConfig()">Save configuration</button>
+      <button class="btn btn-save" onclick="saveConfig()">Save</button>
     </div>
   </div>
 

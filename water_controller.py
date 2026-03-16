@@ -87,8 +87,8 @@ def start(config: dict) -> bool:
     Start the background task with the given config dict.
     Returns False if already running.
 
-    Expected config keys (set via the web UI):
-        sensor_gpio     : int   — BCM pin number for the water-level sensor
+    Expected config keys (set in config.json):
+        sensor_gpios    : list  — BCM pin numbers for water-level sensors
         valve_gpios     : list  — BCM pin numbers for relay-controlled valves
         poll_interval_ms: int   — how often to sample GPIO (default 500)
     """
@@ -124,29 +124,31 @@ def stop() -> bool:
 def _run(config: dict):
     global _running
 
-    sensor_pin: int = config["sensor_gpio"]
+    sensor_pins: list[int] = config["sensor_gpios"]
     valve_pins: list[int] = config["valve_gpios"]
     interval: float = config.get("poll_interval_ms", 500) / 1000.0
 
     # --- GPIO setup ---------------------------------------------------------
-    GPIO.setup(sensor_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+    for pin in sensor_pins:
+        GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
     for pin in valve_pins:
         GPIO.setup(pin, GPIO.OUT, initial=GPIO.LOW)
 
     logger.info(
-        f"Task running — sensor: GPIO{sensor_pin}, "
+        f"Task running — sensors: {['GPIO' + str(p) for p in sensor_pins]}, "
         f"valves: {['GPIO' + str(p) for p in valve_pins]}, "
         f"interval: {interval}s"
     )
 
     try:
         while _running:
-            sensor_value = GPIO.input(sensor_pin)
-            valve_values = [GPIO.input(p) for p in valve_pins]
+            sensor_values = [GPIO.input(p) for p in sensor_pins]
+            valve_values  = [GPIO.input(p) for p in valve_pins]
 
             # Update shared state (read by web UI)
             with _lock:
-                _gpio_states[f"gpio_{sensor_pin}"] = sensor_value
+                for pin, val in zip(sensor_pins, sensor_values):
+                    _gpio_states[f"gpio_{pin}"] = val
                 for pin, val in zip(valve_pins, valve_values):
                     _gpio_states[f"gpio_{pin}"] = val
 
@@ -154,16 +156,17 @@ def _run(config: dict):
             # >>> YOUR LOGIC HERE <<<
             #
             # You have access to:
-            #   sensor_value        — int (0 or 1) current sensor reading
-            #   valve_pins          — list of int, BCM pin numbers
-            #   config              — full config dict from the web UI
+            #   sensor_values       — list of int (0 or 1), one per sensor pin
+            #   sensor_pins         — list of int, BCM pin numbers for sensors
+            #   valve_pins          — list of int, BCM pin numbers for valves
+            #   config              — full config dict from config.json
             #
             # To control a valve relay:
             #   GPIO.output(valve_pins[0], GPIO.HIGH)   # open / energise
             #   GPIO.output(valve_pins[0], GPIO.LOW)    # close / de-energise
             #
-            # Example skeleton:
-            #   if sensor_value == 1:   # sensor triggered
+            # Example skeleton (single sensor):
+            #   if sensor_values[0] == 1:   # sensor triggered
             #       GPIO.output(valve_pins[0], GPIO.HIGH)
             #   else:
             #       GPIO.output(valve_pins[0], GPIO.LOW)
@@ -180,6 +183,6 @@ def _run(config: dict):
                 GPIO.output(pin, GPIO.LOW)
             except Exception:
                 pass
-        GPIO.cleanup([sensor_pin] + valve_pins)
+        GPIO.cleanup(sensor_pins + valve_pins)
         _running = False
         logger.info("Background task stopped, GPIO cleaned up")
