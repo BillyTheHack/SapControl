@@ -31,7 +31,9 @@ except ImportError:
     _MOCK = True
 
     class _MockGPIO:
-        BCM = OUT = IN = HIGH = LOW = 0
+        BCM = OUT = IN = 0
+        HIGH = 1
+        LOW = 0
         PUD_DOWN = PUD_UP = 1
 
         def __init__(self):
