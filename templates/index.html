@@ -170,6 +170,45 @@
     /* Divider */
     hr { border: none; border-top: 1px solid var(--border); margin: 4px 0 16px; }
 
+    /* -----------------------------------------------------------------------
+       System diagram
+    ----------------------------------------------------------------------- */
+    #diagram-wrap { width: 100%; overflow-x: auto; }
+    #system-diagram { display: block; margin: 0 auto; max-width: 540px; width: 100%; }
+
+    /* Base — inactive */
+    .d-pipe   { stroke: #334155; stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; transition: stroke .35s; }
+    .d-tank   { fill: #1e293b; stroke: #334155; stroke-width: 2; }
+    .d-water  { fill: #1d4ed844; transition: height .5s, y .5s; }
+    .d-valve  { fill: #334155; stroke: #475569; stroke-width: 1.5; transition: fill .3s, stroke .3s; }
+    .d-pump   { fill: #334155; stroke: #475569; stroke-width: 1.5; transition: fill .3s, stroke .3s; }
+    .d-sensor { fill: #334155; stroke: #475569; stroke-width: 1.5; transition: fill .3s, stroke .3s; }
+    .d-label  { fill: #64748b; font-family: system-ui,sans-serif; font-size: 11px; text-anchor: middle; transition: fill .3s; }
+    .d-slabel { fill: #475569; font-family: system-ui,sans-serif; font-size: 10px; font-weight: 700; text-anchor: middle; }
+
+    /* Active pipe = blue flow */
+    .d-pipe.active { stroke: #3b82f6; }
+
+    /* Valve states */
+    .d-valve.open   { fill: #14532d; stroke: #22c55e; }
+    .d-valve.closed { fill: #7f1d1d; stroke: #ef4444; }
+    .d-label.open   { fill: #22c55e; }
+    .d-label.closed { fill: #ef4444; }
+
+    /* Sensor triggered */
+    .d-sensor.on { fill: #1e3a5f; stroke: #3b82f6; }
+    .d-label.on  { fill: #3b82f6; }
+
+    /* Pump active */
+    .d-pump.active  { fill: #14532d; stroke: #22c55e; }
+    .d-label.pump-active { fill: #22c55e; }
+
+    /* Phase banner */
+    #d-phase { font-family: system-ui,sans-serif; font-size: 12px; font-weight: 700;
+               fill: #475569; text-anchor: middle; transition: fill .3s; }
+    #d-phase.filling { fill: #3b82f6; }
+    #d-phase.idle    { fill: #475569; }
+
     /* Connection indicator */
     #conn-indicator {
       font-size: .75rem;
@@ -208,6 +247,105 @@
       <p style="color:var(--muted);font-size:.85rem">Loading GPIO state…</p>
     </div>
     <p id="conn-indicator">Connecting…</p>
+  </div>
+
+  <!-- System diagram -->
+  <div class="card">
+    <h2>System Diagram</h2>
+    <div id="diagram-wrap">
+      <!--
+        Coordinate layout (viewBox 0 0 540 400):
+
+        Tank rect:  x=180 y=80  w=180 h=220   (centre of canvas)
+
+        Valves (diamond symbols, 14×14):
+          Vacuum       top-left    cx=90  cy=100  → pipe up-left out of tank top-left corner
+          Air          mid-left    cx=90  cy=190  → pipe left into tank mid-left
+          Water Pump V bottom-left cx=90  cy=300  → pipe left into tank bottom-left
+          Maple Trees  top-right   cx=450 cy=100  → pipe up-right out of tank top-right corner
+        Pump relay circle: cx=270 cy=370 r=20     (below tank centre)
+
+        Sensors (small rect inside tank):
+          Top sensor    x=280 y=105
+          Bottom sensor x=280 y=255
+      -->
+      <svg id="system-diagram" viewBox="0 0 540 420" xmlns="http://www.w3.org/2000/svg">
+
+        <!-- ── Tank body ───────────────────────────────────────────── -->
+        <rect class="d-tank" x="180" y="80" width="180" height="220" rx="6"/>
+
+        <!-- Water fill level (animated via JS: height + y change) -->
+        <clipPath id="tank-clip">
+          <rect x="182" y="82" width="176" height="216" rx="4"/>
+        </clipPath>
+        <rect id="d-water" class="d-water" x="182" y="252" width="176" height="46" clip-path="url(#tank-clip)"/>
+
+        <!-- ── Sensor: Top ─────────────────────────────────────────── -->
+        <!-- pipe stub inside tank to sensor dot -->
+        <line class="d-pipe" x1="270" y1="80" x2="270" y2="115"/>
+        <circle id="d-sensor-top" class="d-sensor" cx="270" cy="125" r="10"/>
+        <text class="d-label" id="d-label-sensor-top" x="270" y="148">Top</text>
+
+        <!-- ── Sensor: Bottom ─────────────────────────────────────── -->
+        <line class="d-pipe" x1="270" y1="300" x2="270" y2="265"/>
+        <circle id="d-sensor-bot" class="d-sensor" cx="270" cy="255" r="10"/>
+        <text class="d-label" id="d-label-sensor-bot" x="270" y="278">Bottom</text>
+
+        <!-- ══════════════════════════════════════════════════════════
+             LEFT SIDE VALVES
+             Vacuum (top-left) → Air (mid-left) → Water Pump valve (bottom-left)
+             All connect to left wall of tank via horizontal pipes.
+        ═══════════════════════════════════════════════════════════ -->
+
+        <!-- Vacuum valve — top-left, pipe exits tank top-left corner upward -->
+        <!-- Pipe: tank top-left corner → up → out -->
+        <polyline id="d-pipe-vacuum" class="d-pipe" points="180,100 90,100 90,40"/>
+        <!-- Valve diamond at cx=90 cy=100 -->
+        <polygon id="d-valve-vacuum" class="d-valve"
+                 points="90,86 104,100 90,114 76,100"/>
+        <text class="d-label" id="d-label-vacuum" x="90" y="130">Vacuum</text>
+
+        <!-- Air valve — mid-left, horizontal pipe into tank -->
+        <line id="d-pipe-air" class="d-pipe" x1="40" y1="190" x2="180" y2="190"/>
+        <polygon id="d-valve-air" class="d-valve"
+                 points="90,176 104,190 90,204 76,190"/>
+        <text class="d-label" id="d-label-air" x="90" y="218">Air</text>
+
+        <!-- Water Pump valve — bottom-left, pipe into tank bottom -->
+        <polyline id="d-pipe-wp-valve" class="d-pipe" points="40,300 90,300 180,300"/>
+        <polygon id="d-valve-wp" class="d-valve"
+                 points="90,286 104,300 90,314 76,300"/>
+        <text class="d-label" id="d-label-wp-valve" x="90" y="323">Water Pump<tspan x="90" dy="13">Valve</tspan></text>
+
+        <!-- ══════════════════════════════════════════════════════════
+             RIGHT SIDE — Maple Trees valve (top-right, output)
+        ═══════════════════════════════════════════════════════════ -->
+
+        <!-- Pipe: tank top-right corner → right → up and out -->
+        <polyline id="d-pipe-maple" class="d-pipe" points="360,100 450,100 450,40"/>
+        <polygon id="d-valve-maple" class="d-valve"
+                 points="450,86 464,100 450,114 436,100"/>
+        <text class="d-label" id="d-label-maple" x="450" y="130">Maple Trees</text>
+
+        <!-- ══════════════════════════════════════════════════════════
+             BOTTOM CENTRE — Water Pump relay
+        ═══════════════════════════════════════════════════════════ -->
+
+        <!-- Pipe: tank bottom centre → down → pump -->
+        <line id="d-pipe-pump" class="d-pipe" x1="270" y1="300" x2="270" y2="370"/>
+        <circle id="d-pump" class="d-pump" cx="270" cy="375" r="18"/>
+        <!-- Pump impeller symbol -->
+        <text style="fill:#475569;font-size:16px;text-anchor:middle;dominant-baseline:central;pointer-events:none"
+              id="d-pump-icon" x="270" y="376">⟳</text>
+        <text class="d-label" id="d-label-pump" x="270" y="408">Water Pump</text>
+
+        <!-- ══════════════════════════════════════════════════════════
+             Phase / state banner
+        ═══════════════════════════════════════════════════════════ -->
+        <text id="d-phase" x="270" y="22">—</text>
+
+      </svg>
+    </div>
   </div>
 
   <!-- Configuration -->

@@ -137,6 +137,7 @@ function applyStatus(running, gpioStates) {
 
   if (currentConfig) {
     renderGpioGrid(currentConfig, gpioStates ?? {});
+    updateDiagram(currentConfig, gpioStates ?? {}, running);
   }
 }
 
@@ -234,6 +235,7 @@ function connectSSE() {
         const pin = parseInt(key.replace('gpio_', ''), 10);
         updateGpioItem(pin, val);
       });
+      updateDiagram(currentConfig, states, data.running);
     } catch (_) {}
   };
 
@@ -243,6 +245,107 @@ function connectSSE() {
     sseSource.close();
     setTimeout(connectSSE, 3000);
   };
+}
+
+// ---------------------------------------------------------------------------
+// System diagram
+// ---------------------------------------------------------------------------
+
+// Maps config.json label substrings (lowercase) → diagram element IDs.
+// Keeps the diagram decoupled from exact pin numbers.
+const VALVE_DIAGRAM_MAP = [
+  { match: 'air',        valve: 'd-valve-air',     pipe: 'd-pipe-air',     label: 'd-label-air'     },
+  { match: 'vacuum',     valve: 'd-valve-vacuum',  pipe: 'd-pipe-vacuum',  label: 'd-label-vacuum'  },
+  { match: 'water pump', valve: 'd-valve-wp',      pipe: 'd-pipe-wp-valve',label: 'd-label-wp-valve'},
+  { match: 'maple',      valve: 'd-valve-maple',   pipe: 'd-pipe-maple',   label: 'd-label-maple'   },
+  { match: 'pump',       pump:  'd-pump',          pipe: 'd-pipe-pump',    label: 'd-label-pump', icon: 'd-pump-icon' },
+];
+
+function updateDiagram(cfg, states, running) {
+  if (!cfg) return;
+
+  const sensorPins  = cfg.sensor_gpios  ?? [];
+  const valvePins   = cfg.valve_gpios   ?? [];
+  const valveLabels = cfg.valve_labels  ?? [];
+  const sensorLabels= cfg.sensor_labels ?? [];
+
+  // ── Sensors ──────────────────────────────────────────────────────────────
+  const sensorIds = ['d-sensor-top', 'd-sensor-bot'];
+  const labelIds  = ['d-label-sensor-top', 'd-label-sensor-bot'];
+  sensorPins.forEach((pin, i) => {
+    const val = states[`gpio_${pin}`];
+    const on  = val === 1;
+    _diagClass(sensorIds[i],  on ? 'on' : '');
+    _diagClass(labelIds[i],   on ? 'on' : '');
+  });
+
+  // Determine fill phase from sensor states for water level animation
+  const topTriggered = states[`gpio_${sensorPins[0]}`] === 1;
+  const botTriggered = states[`gpio_${sensorPins[1]}`] === 1;
+
+  // Water level: low by default, mid when filling (top sensor on), full when bottom on
+  const waterEl = document.getElementById('d-water');
+  if (waterEl) {
+    let waterY, waterH;
+    if (!running)        { waterY = 288; waterH = 10; }  // empty-ish
+    else if (botTriggered){ waterY = 84;  waterH = 214; } // full
+    else if (topTriggered){ waterY = 150; waterH = 148; } // mid-fill
+    else                  { waterY = 270; waterH = 28;  } // low
+    waterEl.setAttribute('y', waterY);
+    waterEl.setAttribute('height', waterH);
+  }
+
+  // ── Valves & pump ────────────────────────────────────────────────────────
+  valvePins.forEach((pin, i) => {
+    const label = (valveLabels[i] ?? '').toLowerCase();
+    const val   = states[`gpio_${pin}`];
+    const isOn  = val === 1;
+
+    // Find matching diagram entry — "pump" substring must not match "water pump valve"
+    const entry = VALVE_DIAGRAM_MAP.find(e => {
+      if (e.match === 'pump')       return label === 'water pump';   // exact relay
+      if (e.match === 'water pump') return label.includes('water pump valve') || label.includes('water pump v');
+      return label.includes(e.match);
+    });
+    if (!entry) return;
+
+    if (entry.pump) {
+      // Pump relay
+      _diagClass(entry.pump,  isOn ? 'active' : '');
+      _diagClass(entry.label, isOn ? 'pump-active' : '');
+      _diagClass(entry.pipe,  isOn ? 'active' : '');
+      const icon = document.getElementById(entry.icon);
+      if (icon) icon.style.fill = isOn ? '#22c55e' : '#475569';
+    } else {
+      // Regular valve
+      _diagClass(entry.valve, isOn ? 'open' : (val === 0 ? 'closed' : ''));
+      _diagClass(entry.label, isOn ? 'open' : (val === 0 ? 'closed' : ''));
+      _diagClass(entry.pipe,  isOn ? 'active' : '');
+    }
+  });
+
+  // ── Phase banner ─────────────────────────────────────────────────────────
+  const phase = document.getElementById('d-phase');
+  if (phase) {
+    if (!running) {
+      phase.textContent = 'Stopped';
+      phase.className   = 'idle';
+    } else if (topTriggered && !botTriggered) {
+      phase.textContent = 'Filling…';
+      phase.className   = 'filling';
+    } else {
+      phase.textContent = 'Idle — waiting for top sensor';
+      phase.className   = 'idle';
+    }
+  }
+}
+
+function _diagClass(id, cls) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  // Remove all state classes then add the new one
+  el.classList.remove('open', 'closed', 'active', 'on', 'pump-active');
+  if (cls) el.classList.add(cls);
 }
 
 // ---------------------------------------------------------------------------
