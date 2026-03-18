@@ -329,5 +329,12 @@ def _run(config: dict):
         # Always close all valves on exit
         _apply_default_state(valve_pins, _valve_level)
         GPIO.cleanup([sensor_drive, sensor_read] + valve_pins)
+        # Update shared state to reflect the post-cleanup reality so the UI
+        # shows accurate values instead of whatever was last polled mid-run.
+        with _lock:
+            _gpio_states[f"gpio_{sensor_drive}"] = 0  # pin released
+            _gpio_states[f"gpio_{sensor_read}"]  = 0  # pin released
+            for pin in valve_pins:
+                _gpio_states[f"gpio_{pin}"] = 0       # logical closed
         _running = False
         logger.info("Background task stopped, GPIO cleaned up")
