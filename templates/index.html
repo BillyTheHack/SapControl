@@ -215,6 +215,80 @@
       color: var(--muted);
       text-align: right;
     }
+
+    /* Valve timing table */
+    .timing-table { display: flex; flex-direction: column; gap: 8px; }
+    .timing-row {
+      display: grid;
+      grid-template-columns: 1fr 120px 120px;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+    }
+    .timing-label { font-size: .875rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .timing-sub   { font-size: .72rem; color: var(--muted); margin-top: 2px; }
+
+    /* Sequence builder */
+    .seq-block { display: flex; flex-direction: column; gap: 6px; }
+    .seq-step {
+      display: grid;
+      grid-template-columns: 28px 1fr 80px 110px 32px;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: .85rem;
+    }
+    .seq-step-num { color: var(--muted); font-size: .75rem; text-align: center; }
+    .seq-step select, .seq-step input {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--text);
+      font-size: .82rem;
+      padding: 5px 8px;
+      width: 100%;
+      outline: none;
+    }
+    .seq-step select:focus, .seq-step input:focus { border-color: var(--accent); }
+    .btn-icon {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 4px 6px;
+      transition: color .15s, border-color .15s;
+    }
+    .btn-icon:hover { color: var(--red); border-color: var(--red); }
+    .btn-add-step {
+      background: none;
+      border: 1px dashed var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: .82rem;
+      padding: 7px;
+      text-align: center;
+      width: 100%;
+      transition: color .15s, border-color .15s;
+    }
+    .btn-add-step:hover { color: var(--accent); border-color: var(--accent); }
+    .seq-header {
+      display: grid;
+      grid-template-columns: 28px 1fr 80px 110px 32px;
+      gap: 8px;
+      padding: 0 10px;
+    }
+    .seq-header span { font-size: .7rem; font-weight: 700; text-transform: uppercase;
+                       letter-spacing: .06em; color: var(--muted); }
   </style>
 </head>
 <body>
@@ -362,10 +436,45 @@
 
       <hr />
 
-      <!-- Poll interval (the only editable setting) -->
+      <!-- Poll interval -->
       <div class="form-row">
         <label for="poll-interval">Poll interval (ms)</label>
         <input type="number" id="poll-interval" min="100" max="10000" step="100" placeholder="500" />
+      </div>
+
+      <hr />
+
+      <!-- Valve timings -->
+      <div>
+        <label style="display:block;margin-bottom:8px">Valve actuation times (ms)</label>
+        <div id="timing-table" class="timing-table">
+          <p style="color:var(--muted);font-size:.85rem">Loading…</p>
+        </div>
+        <p class="pin-hint">Time each valve takes to physically open or close.</p>
+      </div>
+
+      <hr />
+
+      <!-- Fill sequence -->
+      <div>
+        <label style="display:block;margin-bottom:8px">Fill sequence <span style="font-weight:400;color:var(--muted)">(runs when top sensor triggers)</span></label>
+        <div class="seq-header">
+          <span>#</span><span>Valve</span><span>State</span><span>Delay after (ms)</span><span></span>
+        </div>
+        <div id="fill-seq" class="seq-block"></div>
+        <button class="btn-add-step" onclick="addStep('fill-seq')">+ Add step</button>
+      </div>
+
+      <hr />
+
+      <!-- Idle sequence -->
+      <div>
+        <label style="display:block;margin-bottom:8px">Idle sequence <span style="font-weight:400;color:var(--muted)">(runs when bottom sensor triggers)</span></label>
+        <div class="seq-header">
+          <span>#</span><span>Valve</span><span>State</span><span>Delay after (ms)</span><span></span>
+        </div>
+        <div id="idle-seq" class="seq-block"></div>
+        <button class="btn-add-step" onclick="addStep('idle-seq')">+ Add step</button>
       </div>
 
       <div id="config-feedback" class="feedback"></div>

@@ -32,17 +32,91 @@ async function loadConfig() {
 function renderConfigForm(cfg) {
   document.getElementById('poll-interval').value = cfg.poll_interval_ms ?? 500;
 
+  // Pin table (read-only)
   const table = document.getElementById('pin-table');
   table.innerHTML = '';
-
   table.appendChild(makePinRow('Sensor (drive)', cfg.sensor_drive_gpio, cfg.sensor_label ?? 'Sensor'));
   table.appendChild(makePinRow('Sensor (read)',  cfg.sensor_read_gpio,  cfg.sensor_label ?? 'Sensor'));
-
   const valves  = cfg.valve_gpios  ?? [];
   const vlabels = cfg.valve_labels ?? [];
   valves.forEach((pin, i) => {
     table.appendChild(makePinRow('Valve', pin, vlabels[i] ?? `Valve ${i + 1}`));
   });
+
+  // Valve timings
+  renderTimingTable(cfg);
+
+  // Sequences
+  renderSequence('fill-seq', cfg.fill_sequence ?? [], cfg);
+  renderSequence('idle-seq', cfg.idle_sequence ?? [], cfg);
+}
+
+function renderTimingTable(cfg) {
+  const container = document.getElementById('timing-table');
+  container.innerHTML = '';
+  const valves  = cfg.valve_gpios  ?? [];
+  const vlabels = cfg.valve_labels ?? [];
+  const timings = cfg.valve_timings ?? [];
+
+  valves.forEach((pin, i) => {
+    const t    = timings[i] ?? { open_ms: 0, close_ms: 0 };
+    const name = vlabels[i] ?? `Valve ${i + 1}`;
+    const row  = document.createElement('div');
+    row.className = 'timing-row';
+    row.innerHTML = `
+      <div>
+        <div class="timing-label">${escapeHTML(name)}</div>
+        <div class="timing-sub">GPIO ${pin}</div>
+      </div>
+      <div>
+        <label style="font-size:.7rem;color:var(--muted)">Open (ms)</label>
+        <input type="number" class="timing-open" data-index="${i}"
+               min="0" max="30000" step="50" value="${t.open_ms}" />
+      </div>
+      <div>
+        <label style="font-size:.7rem;color:var(--muted)">Close (ms)</label>
+        <input type="number" class="timing-close" data-index="${i}"
+               min="0" max="30000" step="50" value="${t.close_ms}" />
+      </div>
+    `;
+    container.appendChild(row);
+  });
+}
+
+function renderSequence(containerId, steps, cfg) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  steps.forEach((step, i) => appendStepRow(container, i, step, cfg));
+  renumberSteps(container);
+}
+
+function appendStepRow(container, index, step, cfg) {
+  const cfg_ = cfg ?? currentConfig;
+  const vlabels = cfg_?.valve_labels ?? [];
+  const nValves = cfg_?.valve_gpios?.length ?? 0;
+
+  const row = document.createElement('div');
+  row.className = 'seq-step';
+
+  // Valve selector options
+  let opts = '';
+  for (let i = 0; i < nValves; i++) {
+    const sel = (step.valve_index === i) ? 'selected' : '';
+    opts += `<option value="${i}" ${sel}>${escapeHTML(vlabels[i] ?? `Valve ${i + 1}`)}</option>`;
+  }
+
+  row.innerHTML = `
+    <span class="seq-step-num">${index + 1}</span>
+    <select class="step-valve">${opts}</select>
+    <select class="step-state">
+      <option value="1" ${step.state === 1 ? 'selected' : ''}>Open (1)</option>
+      <option value="0" ${step.state === 0 ? 'selected' : ''}>Close (0)</option>
+    </select>
+    <input type="number" class="step-delay" min="0" max="30000" step="50"
+           value="${step.delay_after_ms ?? 0}" />
+    <button class="btn-icon" title="Remove step" onclick="removeStep(this)">✕</button>
+  `;
+  container.appendChild(row);
 }
 
 function makePinRow(role, pin, name) {
@@ -81,9 +155,57 @@ async function saveConfig() {
 }
 
 function readFormConfig() {
-  // Only poll_interval_ms is user-editable; everything else is preserved server-side.
   const interval = parseInt(document.getElementById('poll-interval').value, 10);
-  return { poll_interval_ms: interval };
+
+  // Valve timings
+  const valve_timings = [];
+  document.querySelectorAll('.timing-open').forEach((el, i) => {
+    const closeEl = document.querySelector(`.timing-close[data-index="${i}"]`);
+    valve_timings.push({
+      open_ms:  parseInt(el.value, 10)       || 0,
+      close_ms: parseInt(closeEl?.value, 10) || 0,
+    });
+  });
+
+  // Helper: read a sequence from a container
+  function readSequence(containerId) {
+    const steps = [];
+    document.querySelectorAll(`#${containerId} .seq-step`).forEach(row => {
+      steps.push({
+        valve_index:    parseInt(row.querySelector('.step-valve').value, 10),
+        state:          parseInt(row.querySelector('.step-state').value, 10),
+        delay_after_ms: parseInt(row.querySelector('.step-delay').value, 10) || 0,
+      });
+    });
+    return steps;
+  }
+
+  return {
+    poll_interval_ms: interval,
+    valve_timings,
+    fill_sequence: readSequence('fill-seq'),
+    idle_sequence: readSequence('idle-seq'),
+  };
+}
+
+function addStep(containerId) {
+  const container = document.getElementById(containerId);
+  const existing  = container.querySelectorAll('.seq-step').length;
+  appendStepRow(container, existing, { valve_index: 0, state: 1, delay_after_ms: 0 }, null);
+  renumberSteps(container);
+}
+
+function removeStep(btn) {
+  const container = btn.closest('.seq-block');
+  btn.closest('.seq-step').remove();
+  renumberSteps(container);
+}
+
+function renumberSteps(container) {
+  container.querySelectorAll('.seq-step').forEach((row, i) => {
+    const num = row.querySelector('.seq-step-num');
+    if (num) num.textContent = i + 1;
+  });
 }
 
 // ---------------------------------------------------------------------------

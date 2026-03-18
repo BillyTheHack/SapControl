@@ -43,8 +43,19 @@ DEFAULT_CONFIG = {
     "valve_gpios": [27, 22],
     "sensor_label": "Water Level Sensor",
     "valve_labels": ["Inlet Valve", "Outlet Valve"],
-    "default_valve_states": [0, 0],
     "poll_interval_ms": 500,
+    "valve_timings": [
+        {"open_ms": 500, "close_ms": 500},
+        {"open_ms": 500, "close_ms": 500},
+    ],
+    "fill_sequence": [
+        {"valve_index": 0, "state": 1, "delay_after_ms": 0},
+        {"valve_index": 1, "state": 0, "delay_after_ms": 0},
+    ],
+    "idle_sequence": [
+        {"valve_index": 0, "state": 0, "delay_after_ms": 0},
+        {"valve_index": 1, "state": 1, "delay_after_ms": 0},
+    ],
 }
 
 
@@ -70,26 +81,74 @@ def save_config(config: dict) -> None:
 def validate_config(data: dict) -> tuple[dict | None, str | None]:
     """Return (cleaned_config, error_message).
 
-    The web UI may only submit poll_interval_ms.  All pin/label fields come
-    from config.json directly and are kept as-is.
+    Pin/label fields are read-only from the UI and always preserved from
+    config.json.  The web UI may submit:
+        poll_interval_ms  – int 100-10000
+        valve_timings     – list of {open_ms, close_ms} per valve (int 0-30000)
+        fill_sequence     – list of {valve_index, state, delay_after_ms}
+        idle_sequence     – list of {valve_index, state, delay_after_ms}
     """
     try:
         existing = load_config()
-        interval = int(data.get("poll_interval_ms", existing.get("poll_interval_ms", 500)))
+        n_valves = len(existing["valve_gpios"])
 
+        # --- poll_interval_ms ------------------------------------------------
+        interval = int(data.get("poll_interval_ms", existing.get("poll_interval_ms", 500)))
         if not (100 <= interval <= 10000):
             return None, "poll_interval_ms must be between 100 and 10000"
 
-        # Preserve all pin/label fields from the existing config unchanged
+        # --- valve_timings ---------------------------------------------------
+        raw_timings = data.get("valve_timings", existing.get("valve_timings", []))
+        if len(raw_timings) != n_valves:
+            return None, f"valve_timings must have {n_valves} entries (one per valve)"
+        valve_timings = []
+        for i, t in enumerate(raw_timings):
+            open_ms  = int(t.get("open_ms",  0))
+            close_ms = int(t.get("close_ms", 0))
+            if not (0 <= open_ms  <= 30000):
+                return None, f"valve_timings[{i}].open_ms must be 0-30000"
+            if not (0 <= close_ms <= 30000):
+                return None, f"valve_timings[{i}].close_ms must be 0-30000"
+            valve_timings.append({"open_ms": open_ms, "close_ms": close_ms})
+
+        # --- sequence helper -------------------------------------------------
+        def _validate_sequence(seq, name):
+            if not isinstance(seq, list):
+                return None, f"{name} must be a list"
+            result = []
+            for i, step in enumerate(seq):
+                vi    = int(step.get("valve_index", -1))
+                state = int(step.get("state", 0))
+                delay = int(step.get("delay_after_ms", 0))
+                if not (0 <= vi < n_valves):
+                    return None, f"{name}[{i}].valve_index {vi} out of range 0-{n_valves-1}"
+                if state not in (0, 1):
+                    return None, f"{name}[{i}].state must be 0 or 1"
+                if not (0 <= delay <= 30000):
+                    return None, f"{name}[{i}].delay_after_ms must be 0-30000"
+                result.append({"valve_index": vi, "state": state, "delay_after_ms": delay})
+            return result, None
+
+        raw_fill = data.get("fill_sequence", existing.get("fill_sequence", []))
+        fill_seq, err = _validate_sequence(raw_fill, "fill_sequence")
+        if err:
+            return None, err
+
+        raw_idle = data.get("idle_sequence", existing.get("idle_sequence", []))
+        idle_seq, err = _validate_sequence(raw_idle, "idle_sequence")
+        if err:
+            return None, err
+
         return {
-            "sensor_drive_gpio":   existing["sensor_drive_gpio"],
-            "sensor_read_gpio":    existing["sensor_read_gpio"],
-            "valve_gpios":         existing["valve_gpios"],
-            "sensor_label":        existing["sensor_label"],
-            "valve_labels":        existing["valve_labels"],
-            "default_valve_states": existing.get("default_valve_states",
-                                        [0] * len(existing["valve_gpios"])),
-            "poll_interval_ms": interval,
+            "sensor_drive_gpio": existing["sensor_drive_gpio"],
+            "sensor_read_gpio":  existing["sensor_read_gpio"],
+            "valve_gpios":       existing["valve_gpios"],
+            "sensor_label":      existing["sensor_label"],
+            "valve_labels":      existing["valve_labels"],
+            "poll_interval_ms":  interval,
+            "valve_timings":     valve_timings,
+            "fill_sequence":     fill_seq,
+            "idle_sequence":     idle_seq,
         }, None
 
     except (KeyError, TypeError, ValueError) as exc:
