@@ -16,26 +16,67 @@
     "Valve Maple Trees",
     "Water Pump"
   ],
-  "poll_interval_ms": 500,
+  "poll_interval_ms": 100,
+  "valve_inverted": true,
   "valve_timings": [
     {"open_ms": 500, "close_ms": 500},
     {"open_ms": 500, "close_ms": 500},
     {"open_ms": 500, "close_ms": 500},
     {"open_ms": 500, "close_ms": 500},
-    {"open_ms": 0,   "close_ms": 0}
+    {"open_ms": 0, "close_ms": 0}
   ],
   "fill_sequence": [
-    {"valve_index": 3, "state": 0, "delay_after_ms": 200},
-    {"valve_index": 2, "state": 1, "delay_after_ms": 200},
-    {"valve_index": 1, "state": 0, "delay_after_ms": 200},
-    {"valve_index": 0, "state": 1, "delay_after_ms": 200},
-    {"valve_index": 4, "state": 1, "delay_after_ms": 0}
+    {
+      "valve_index": 3,
+      "state": 0,
+      "delay_after_ms": 0
+    },
+    {
+      "valve_index": 1,
+      "state": 0,
+      "delay_after_ms": 5000
+    },
+    {
+      "valve_index": 0,
+      "state": 1,
+      "delay_after_ms": 0
+    },
+    {
+      "valve_index": 2,
+      "state": 1,
+      "delay_after_ms": 5000
+    },
+    {
+      "valve_index": 4,
+      "state": 1,
+      "delay_after_ms": 0
+    }
   ],
   "idle_sequence": [
-    {"valve_index": 4, "state": 0, "delay_after_ms": 200},
-    {"valve_index": 0, "state": 0, "delay_after_ms": 200},
-    {"valve_index": 2, "state": 0, "delay_after_ms": 200},
-    {"valve_index": 1, "state": 1, "delay_after_ms": 200},
-    {"valve_index": 3, "state": 1, "delay_after_ms": 0}
+    {
+      "valve_index": 4,
+      "state": 0,
+      "delay_after_ms": 0
+    },
+    {
+      "valve_index": 0,
+      "state": 0,
+      "delay_after_ms": 0
+    },
+    {
+      "valve_index": 2,
+      "state": 0,
+      "delay_after_ms": 10000
+    },
+    {
+      "valve_index": 1,
+      "state": 1,
+      "delay_after_ms": 5000
+    },
+    {
+      "valve_index": 3,
+      "state": 1,
+      "delay_after_ms": 0
+    }
   ]
 }
