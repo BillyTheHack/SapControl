@@ -1,0 +1,41 @@
+{
+  "sensor_drive_gpio": 16,
+  "sensor_read_gpio": 20,
+  "valve_gpios": [
+    14,
+    15,
+    18,
+    23,
+    24
+  ],
+  "sensor_label": "Water Level Sensor",
+  "valve_labels": [
+    "Valve Air",
+    "Valve Vacuum",
+    "Valve Water Pump",
+    "Valve Maple Trees",
+    "Water Pump"
+  ],
+  "poll_interval_ms": 500,
+  "valve_timings": [
+    {"open_ms": 500, "close_ms": 500},
+    {"open_ms": 500, "close_ms": 500},
+    {"open_ms": 500, "close_ms": 500},
+    {"open_ms": 500, "close_ms": 500},
+    {"open_ms": 0,   "close_ms": 0}
+  ],
+  "fill_sequence": [
+    {"valve_index": 3, "state": 0, "delay_after_ms": 200},
+    {"valve_index": 2, "state": 1, "delay_after_ms": 200},
+    {"valve_index": 1, "state": 0, "delay_after_ms": 200},
+    {"valve_index": 0, "state": 1, "delay_after_ms": 200},
+    {"valve_index": 4, "state": 1, "delay_after_ms": 0}
+  ],
+  "idle_sequence": [
+    {"valve_index": 4, "state": 0, "delay_after_ms": 200},
+    {"valve_index": 0, "state": 0, "delay_after_ms": 200},
+    {"valve_index": 2, "state": 0, "delay_after_ms": 200},
+    {"valve_index": 1, "state": 1, "delay_after_ms": 200},
+    {"valve_index": 3, "state": 1, "delay_after_ms": 0}
+  ]
+}
