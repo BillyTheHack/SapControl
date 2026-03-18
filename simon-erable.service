@@ -1,0 +1,14 @@
+[Unit]
+Description=Simon Erable — Water Controller
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/simon-erable
+ExecStart=/home/pi/simon-erable/venv/bin/python app.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
