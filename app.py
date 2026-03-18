@@ -49,7 +49,7 @@ DEFAULT_CONFIG = {
         {"open_ms": 500, "close_ms": 500},
         {"open_ms": 500, "close_ms": 500},
     ],
-    "fill_sequence": [
+    "dump_sequence": [
         {"valve_index": 0, "state": 1, "delay_after_ms": 0},
         {"valve_index": 1, "state": 0, "delay_after_ms": 0},
     ],
@@ -86,7 +86,7 @@ def validate_config(data: dict) -> tuple[dict | None, str | None]:
     config.json.  The web UI may submit:
         poll_interval_ms  – int 100-10000
         valve_timings     – list of {open_ms, close_ms} per valve (int 0-30000)
-        fill_sequence     – list of {valve_index, state, delay_after_ms}
+        dump_sequence     – list of {valve_index, state, delay_after_ms}
         idle_sequence     – list of {valve_index, state, delay_after_ms}
     """
     try:
@@ -133,8 +133,8 @@ def validate_config(data: dict) -> tuple[dict | None, str | None]:
                 result.append({"valve_index": vi, "state": state, "delay_after_ms": delay})
             return result, None
 
-        raw_fill = data.get("fill_sequence", existing.get("fill_sequence", []))
-        fill_seq, err = _validate_sequence(raw_fill, "fill_sequence")
+        raw_dump = data.get("dump_sequence", existing.get("dump_sequence", []))
+        dump_seq, err = _validate_sequence(raw_dump, "dump_sequence")
         if err:
             return None, err
 
@@ -152,7 +152,7 @@ def validate_config(data: dict) -> tuple[dict | None, str | None]:
             "poll_interval_ms":  interval,
             "valve_inverted":    valve_inverted,
             "valve_timings":     valve_timings,
-            "fill_sequence":     fill_seq,
+            "dump_sequence":     dump_seq,
             "idle_sequence":     idle_seq,
         }, None
 

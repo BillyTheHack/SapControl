@@ -48,7 +48,7 @@ function renderConfigForm(cfg) {
   renderTimingTable(cfg);
 
   // Sequences
-  renderSequence('fill-seq', cfg.fill_sequence ?? [], cfg);
+  renderSequence('dump-seq', cfg.dump_sequence ?? [], cfg);
   renderSequence('idle-seq', cfg.idle_sequence ?? [], cfg);
 }
 
@@ -197,7 +197,7 @@ function readFormConfig() {
     poll_interval_ms: interval,
     valve_inverted,
     valve_timings,
-    fill_sequence: readSequence('fill-seq'),
+    dump_sequence: readSequence('dump-seq'),
     idle_sequence: readSequence('idle-seq'),
   };
 }
@@ -395,7 +395,7 @@ function updateDiagram(cfg, states, running) {
   const valveLabels   = cfg.valve_labels ?? [];
 
   // ── Sensor ───────────────────────────────────────────────────────────────
-  // Circuit closed (HIGH) = water at top = filling about to start
+  // Circuit closed (HIGH) = sap at top = dump about to start
   // Circuit open  (LOW)   = water dropped to bottom = draining
   const sensorVal     = states[`gpio_${sensorReadPin}`];
   const circuitClosed = sensorVal === 1;  // water at top
@@ -408,7 +408,7 @@ function updateDiagram(cfg, states, running) {
   const topTriggered = circuitClosed;
   const botTriggered = !circuitClosed && running;
 
-  // Water level: low by default, mid when filling (top sensor on), full when bottom on
+  // Water level: low by default, mid when dumping (top sensor on), full when bottom on
   const waterEl = document.getElementById('d-water');
   if (waterEl) {
     let waterY, waterH;
@@ -456,8 +456,8 @@ function updateDiagram(cfg, states, running) {
       phase.textContent = 'Stopped';
       phase.className   = 'idle';
     } else if (topTriggered && !botTriggered) {
-      phase.textContent = 'Filling…';
-      phase.className   = 'filling';
+      phase.textContent = 'Dumping…';
+      phase.className   = 'dumping';
     } else {
       phase.textContent = 'Idle — waiting for top sensor';
       phase.className   = 'idle';

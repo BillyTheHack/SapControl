@@ -212,7 +212,7 @@
     /* Phase banner */
     #d-phase { font-family: system-ui,sans-serif; font-size: 12px; font-weight: 700;
                fill: #475569; text-anchor: middle; transition: fill .3s; }
-    #d-phase.filling { fill: #3b82f6; }
+    #d-phase.dumping { fill: #3b82f6; }
     #d-phase.idle    { fill: #475569; }
 
     /* Connection indicator */
@@ -372,7 +372,7 @@
         <!-- ── Tank body ───────────────────────────────────────────── -->
         <rect class="d-tank" x="180" y="80" width="180" height="220" rx="6"/>
 
-        <!-- Water fill level (animated via JS: height + y change) -->
+        <!-- Water level (animated via JS: height + y change) -->
         <clipPath id="tank-clip">
           <rect x="182" y="82" width="176" height="216" rx="4"/>
         </clipPath>
@@ -485,14 +485,14 @@
 
       <hr />
 
-      <!-- Fill sequence -->
+      <!-- Dump sequence -->
       <div>
-        <label style="display:block;margin-bottom:8px">Fill sequence <span style="font-weight:400;color:var(--muted)">(runs when top sensor triggers)</span></label>
+        <label style="display:block;margin-bottom:8px">Dump sequence <span style="font-weight:400;color:var(--muted)">(runs when top sensor triggers)</span></label>
         <div class="seq-header">
           <span>#</span><span>Valve</span><span>State</span><span>Delay after (ms)</span><span></span>
         </div>
-        <div id="fill-seq" class="seq-block"></div>
-        <button class="btn-add-step" onclick="addStep('fill-seq')">+ Add step</button>
+        <div id="dump-seq" class="seq-block"></div>
+        <button class="btn-add-step" onclick="addStep('dump-seq')">+ Add step</button>
       </div>
 
       <hr />

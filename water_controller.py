@@ -210,7 +210,7 @@ def _apply_default_state(valve_pins: list[int], valve_level=None) -> None:
 
 # State machine states
 _IDLE    = "IDLE"     # waiting for top sensor to trigger
-_FILLING = "FILLING"  # top triggered, waiting for bottom sensor
+_DUMPING = "DUMPING"  # top triggered, waiting for bottom sensor
 
 
 def _run(config: dict):
@@ -222,7 +222,7 @@ def _run(config: dict):
     interval:     float      = config.get("poll_interval_ms", 500) / 1000.0
     inverted:     bool       = config.get("valve_inverted", True)
     timings:      list[dict] = config.get("valve_timings", [])
-    fill_seq:     list[dict] = config.get("fill_sequence", [])
+    dump_seq:     list[dict] = config.get("dump_sequence", [])
     idle_seq:     list[dict] = config.get("idle_sequence", [])
 
     def _valve_level(logical_state: int) -> int:
@@ -267,25 +267,25 @@ def _run(config: dict):
             # State machine
             #
             # IDLE:
-            #   sensor_read HIGH = water circuit closed = tank full at top.
-            #   Execute fill_sequence then enter FILLING.
+            #   sensor_read HIGH = water circuit closed = sap at top.
+            #   Execute dump_sequence then enter DUMPING.
             #
-            # FILLING:
-            #   sensor_read LOW = circuit open = water dropped to bottom level.
+            # DUMPING:
+            #   sensor_read LOW = circuit open = sap dropped to bottom level.
             #   Execute idle_sequence and return to IDLE.
             # ----------------------------------------------------------------
 
             if state == _IDLE:
                 if sensor_value == GPIO.HIGH:
-                    logger.info("Sensor circuit closed (water at top) — starting fill sequence")
+                    logger.info("Sensor circuit closed (sap at top) — starting dump sequence")
                     interrupted = _run_sequence(
-                        valve_pins, fill_seq, timings,
+                        valve_pins, dump_seq, timings,
                         sensor_read, GPIO.LOW,
                         lambda: _running,
                         _valve_level,
                     )
                     if interrupted:
-                        logger.info("Fill sequence interrupted by sensor change — jumping to idle sequence")
+                        logger.info("Dump sequence interrupted by sensor change — jumping to idle sequence")
                         _run_sequence(
                             valve_pins, idle_seq, timings,
                             sensor_read, GPIO.HIGH,
@@ -295,12 +295,12 @@ def _run(config: dict):
                         state = _IDLE
                         logger.info("State → IDLE (interrupted)")
                     else:
-                        state = _FILLING
-                        logger.info("State → FILLING")
+                        state = _DUMPING
+                        logger.info("State → DUMPING")
 
-            elif state == _FILLING:
+            elif state == _DUMPING:
                 if sensor_value == GPIO.LOW:
-                    logger.info("Sensor circuit open (water at bottom) — ending fill sequence")
+                    logger.info("Sensor circuit open (sap at bottom) — ending dump sequence")
                     interrupted = _run_sequence(
                         valve_pins, idle_seq, timings,
                         sensor_read, GPIO.HIGH,
@@ -308,15 +308,15 @@ def _run(config: dict):
                         _valve_level,
                     )
                     if interrupted:
-                        logger.info("Idle sequence interrupted by sensor change — jumping to fill sequence")
+                        logger.info("Idle sequence interrupted by sensor change — jumping to dump sequence")
                         _run_sequence(
-                            valve_pins, fill_seq, timings,
+                            valve_pins, dump_seq, timings,
                             sensor_read, GPIO.LOW,
                             lambda: _running,
                             _valve_level,
                         )
-                        state = _FILLING
-                        logger.info("State → FILLING (interrupted)")
+                        state = _DUMPING
+                        logger.info("State → DUMPING (interrupted)")
                     else:
                         state = _IDLE
                         logger.info("State → IDLE")
