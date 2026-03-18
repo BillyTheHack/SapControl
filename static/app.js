@@ -30,7 +30,8 @@ async function loadConfig() {
 }
 
 function renderConfigForm(cfg) {
-  document.getElementById('poll-interval').value = cfg.poll_interval_ms ?? 500;
+  document.getElementById('poll-interval').value       = cfg.poll_interval_ms ?? 500;
+  document.getElementById('valve-inverted').checked    = cfg.valve_inverted ?? true;
 
   // Pin table (read-only)
   const table = document.getElementById('pin-table');
@@ -155,7 +156,8 @@ async function saveConfig() {
 }
 
 function readFormConfig() {
-  const interval = parseInt(document.getElementById('poll-interval').value, 10);
+  const interval        = parseInt(document.getElementById('poll-interval').value, 10);
+  const valve_inverted  = document.getElementById('valve-inverted').checked;
 
   // Valve timings
   const valve_timings = [];
@@ -182,6 +184,7 @@ function readFormConfig() {
 
   return {
     poll_interval_ms: interval,
+    valve_inverted,
     valve_timings,
     fill_sequence: readSequence('fill-seq'),
     idle_sequence: readSequence('idle-seq'),

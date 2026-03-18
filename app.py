@@ -44,6 +44,7 @@ DEFAULT_CONFIG = {
     "sensor_label": "Water Level Sensor",
     "valve_labels": ["Inlet Valve", "Outlet Valve"],
     "poll_interval_ms": 500,
+    "valve_inverted": True,
     "valve_timings": [
         {"open_ms": 500, "close_ms": 500},
         {"open_ms": 500, "close_ms": 500},
@@ -91,6 +92,9 @@ def validate_config(data: dict) -> tuple[dict | None, str | None]:
     try:
         existing = load_config()
         n_valves = len(existing["valve_gpios"])
+
+        # --- valve_inverted --------------------------------------------------
+        valve_inverted = bool(data.get("valve_inverted", existing.get("valve_inverted", True)))
 
         # --- poll_interval_ms ------------------------------------------------
         interval = int(data.get("poll_interval_ms", existing.get("poll_interval_ms", 500)))
@@ -146,6 +150,7 @@ def validate_config(data: dict) -> tuple[dict | None, str | None]:
             "sensor_label":      existing["sensor_label"],
             "valve_labels":      existing["valve_labels"],
             "poll_interval_ms":  interval,
+            "valve_inverted":    valve_inverted,
             "valve_timings":     valve_timings,
             "fill_sequence":     fill_seq,
             "idle_sequence":     idle_seq,

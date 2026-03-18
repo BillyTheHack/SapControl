@@ -137,6 +137,7 @@ def _run_sequence(
     sensor_read: int,
     abort_sensor_value: int | None,
     running_flag_ref,
+    valve_level=None,
 ) -> bool:
     """Execute an ordered list of valve actions with per-valve timing and inter-step delays.
 
@@ -171,18 +172,19 @@ def _run_sequence(
         if _should_abort():
             return True
 
-        vi    = step["valve_index"]
-        state = step["state"]
-        pin   = valve_pins[vi]
-        GPIO.output(pin, state)
+        vi           = step["valve_index"]
+        logical      = step["state"]
+        pin          = valve_pins[vi]
+        physical     = valve_level(logical) if valve_level else logical
+        GPIO.output(pin, physical)
 
-        # Publish the change immediately so the UI sees it
+        # Publish the logical state so the UI reflects open/close correctly
         with _lock:
-            _gpio_states[f"gpio_{pin}"] = state
+            _gpio_states[f"gpio_{pin}"] = logical
 
         # Wait for physical valve to finish actuating
         t = timings[vi] if vi < len(timings) else {}
-        actuation_ms = t.get("open_ms", 0) if state == 1 else t.get("close_ms", 0)
+        actuation_ms = t.get("open_ms", 0) if logical == 1 else t.get("close_ms", 0)
         if actuation_ms > 0:
             _interruptible_sleep(actuation_ms)
 
@@ -194,11 +196,12 @@ def _run_sequence(
     return _should_abort() and abort_sensor_value is not None and GPIO.input(sensor_read) == abort_sensor_value
 
 
-def _apply_default_state(valve_pins: list[int]) -> None:
-    """Close all valves (LOW) — used on startup and emergency stop."""
+def _apply_default_state(valve_pins: list[int], valve_level=None) -> None:
+    """Close all valves (logical 0) — used on startup and emergency stop."""
+    physical_off = valve_level(0) if valve_level else GPIO.LOW
     for pin in valve_pins:
-        GPIO.output(pin, GPIO.LOW)
-    logger.info("All valves set LOW (default)")
+        GPIO.output(pin, physical_off)
+    logger.info("All valves closed (physical level %s)", physical_off)
 
 
 # ---------------------------------------------------------------------------
@@ -213,30 +216,36 @@ _FILLING = "FILLING"  # top triggered, waiting for bottom sensor
 def _run(config: dict):
     global _running
 
-    sensor_drive: int       = config["sensor_drive_gpio"]
-    sensor_read:  int       = config["sensor_read_gpio"]
-    valve_pins:   list[int] = config["valve_gpios"]
-    interval:     float     = config.get("poll_interval_ms", 500) / 1000.0
+    sensor_drive: int        = config["sensor_drive_gpio"]
+    sensor_read:  int        = config["sensor_read_gpio"]
+    valve_pins:   list[int]  = config["valve_gpios"]
+    interval:     float      = config.get("poll_interval_ms", 500) / 1000.0
+    inverted:     bool       = config.get("valve_inverted", True)
     timings:      list[dict] = config.get("valve_timings", [])
     fill_seq:     list[dict] = config.get("fill_sequence", [])
     idle_seq:     list[dict] = config.get("idle_sequence", [])
+
+    def _valve_level(logical_state: int) -> int:
+        """Translate logical 1=open/0=close to the physical GPIO level."""
+        return (1 - logical_state) if inverted else logical_state
 
     # --- GPIO setup ---------------------------------------------------------
     GPIO.setup(sensor_drive, GPIO.OUT, initial=GPIO.HIGH)  # always energised
     GPIO.setup(sensor_read,  GPIO.IN,  pull_up_down=GPIO.PUD_DOWN)
     for pin in valve_pins:
-        GPIO.setup(pin, GPIO.OUT, initial=GPIO.LOW)
+        GPIO.setup(pin, GPIO.OUT, initial=_valve_level(0))
 
     logger.info(
-        "Task running — sensor drive: GPIO%s, sensor read: GPIO%s, valves: %s, interval: %.3fs",
+        "Task running — sensor drive: GPIO%s, sensor read: GPIO%s, valves: %s, interval: %.3fs, inverted: %s",
         sensor_drive,
         sensor_read,
         [f"GPIO{p}" for p in valve_pins],
         interval,
+        inverted,
     )
 
     # Apply default state at startup
-    _apply_default_state(valve_pins)
+    _apply_default_state(valve_pins, _valve_level)
 
     state = _IDLE
 
@@ -245,12 +254,14 @@ def _run(config: dict):
             sensor_value = GPIO.input(sensor_read)
             valve_values = [GPIO.input(p) for p in valve_pins]
 
-            # Update shared state (read by web UI)
+            # Update shared state (read by web UI).
+            # Valve values are converted back to logical (open=1/close=0) so the
+            # UI always sees logical state regardless of the inversion setting.
             with _lock:
                 _gpio_states[f"gpio_{sensor_drive}"] = GPIO.HIGH  # always driven
                 _gpio_states[f"gpio_{sensor_read}"]  = sensor_value
                 for pin, val in zip(valve_pins, valve_values):
-                    _gpio_states[f"gpio_{pin}"] = val
+                    _gpio_states[f"gpio_{pin}"] = _valve_level(val)  # physical → logical
 
             # ----------------------------------------------------------------
             # State machine
@@ -269,15 +280,17 @@ def _run(config: dict):
                     logger.info("Sensor circuit closed (water at top) — starting fill sequence")
                     interrupted = _run_sequence(
                         valve_pins, fill_seq, timings,
-                        sensor_read, GPIO.LOW,   # abort if sensor drops (circuit opens)
+                        sensor_read, GPIO.LOW,
                         lambda: _running,
+                        _valve_level,
                     )
                     if interrupted:
                         logger.info("Fill sequence interrupted by sensor change — jumping to idle sequence")
                         _run_sequence(
                             valve_pins, idle_seq, timings,
-                            sensor_read, GPIO.HIGH,  # abort if sensor rises again
+                            sensor_read, GPIO.HIGH,
                             lambda: _running,
+                            _valve_level,
                         )
                         state = _IDLE
                         logger.info("State → IDLE (interrupted)")
@@ -290,8 +303,9 @@ def _run(config: dict):
                     logger.info("Sensor circuit open (water at bottom) — ending fill sequence")
                     interrupted = _run_sequence(
                         valve_pins, idle_seq, timings,
-                        sensor_read, GPIO.HIGH,  # abort if sensor rises again
+                        sensor_read, GPIO.HIGH,
                         lambda: _running,
+                        _valve_level,
                     )
                     if interrupted:
                         logger.info("Idle sequence interrupted by sensor change — jumping to fill sequence")
@@ -299,6 +313,7 @@ def _run(config: dict):
                             valve_pins, fill_seq, timings,
                             sensor_read, GPIO.LOW,
                             lambda: _running,
+                            _valve_level,
                         )
                         state = _FILLING
                         logger.info("State → FILLING (interrupted)")
@@ -312,7 +327,7 @@ def _run(config: dict):
         logger.exception("Unhandled exception in background task")
     finally:
         # Always close all valves on exit
-        _apply_default_state(valve_pins)
+        _apply_default_state(valve_pins, _valve_level)
         GPIO.cleanup([sensor_drive, sensor_read] + valve_pins)
         _running = False
         logger.info("Background task stopped, GPIO cleaned up")
