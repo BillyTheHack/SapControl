@@ -414,8 +414,8 @@ function updateDiagram(cfg, states, running) {
 
     // Find matching diagram entry — "pump" substring must not match "water pump valve"
     const entry = VALVE_DIAGRAM_MAP.find(e => {
-      if (e.match === 'pump')       return label === 'water pump';   // exact relay
-      if (e.match === 'water pump') return label.includes('water pump valve') || label.includes('water pump v');
+      if (e.match === 'pump')       return label === 'water pump';                        // exact relay label
+      if (e.match === 'water pump') return label.includes('water pump') && label !== 'water pump'; // valve only
       return label.includes(e.match);
     });
     if (!entry) return;

@@ -134,34 +134,64 @@ def _run_sequence(
     valve_pins: list[int],
     sequence: list[dict],
     timings: list[dict],
+    sensor_read: int,
+    abort_sensor_value: int | None,
     running_flag_ref,
-) -> None:
+) -> bool:
     """Execute an ordered list of valve actions with per-valve timing and inter-step delays.
 
     Each step: {"valve_index": int, "state": 0|1, "delay_after_ms": int}
     timings[i]: {"open_ms": int, "close_ms": int}  — how long the valve takes to actuate.
 
-    running_flag_ref is a callable that returns the current _running bool so the
-    sequence can abort early if the task is stopped.
+    Params:
+        sensor_read         – BCM pin number to poll during waits
+        abort_sensor_value  – if the sensor reads this value mid-sequence, abort
+                              immediately and return True (interrupted).  Pass None
+                              to disable mid-sequence sensor checking.
+        running_flag_ref    – callable; returns False if the task was stopped.
+
+    Returns True if the sequence was interrupted by a sensor change, False otherwise.
     """
-    for step in sequence:
+    def _should_abort():
         if not running_flag_ref():
-            break
+            return True
+        if abort_sensor_value is not None:
+            return GPIO.input(sensor_read) == abort_sensor_value
+        return False
+
+    def _interruptible_sleep(total_ms):
+        """Sleep in small increments so we can react to sensor or stop events."""
+        end = time.monotonic() + total_ms / 1000.0
+        while time.monotonic() < end:
+            if _should_abort():
+                return
+            time.sleep(min(0.02, end - time.monotonic()))
+
+    for step in sequence:
+        if _should_abort():
+            return True
+
         vi    = step["valve_index"]
         state = step["state"]
         pin   = valve_pins[vi]
         GPIO.output(pin, state)
 
+        # Publish the change immediately so the UI sees it
+        with _lock:
+            _gpio_states[f"gpio_{pin}"] = state
+
         # Wait for physical valve to finish actuating
         t = timings[vi] if vi < len(timings) else {}
         actuation_ms = t.get("open_ms", 0) if state == 1 else t.get("close_ms", 0)
         if actuation_ms > 0:
-            time.sleep(actuation_ms / 1000.0)
+            _interruptible_sleep(actuation_ms)
 
         # Inter-step delay
         delay_ms = step.get("delay_after_ms", 0)
-        if delay_ms > 0 and running_flag_ref():
-            time.sleep(delay_ms / 1000.0)
+        if delay_ms > 0:
+            _interruptible_sleep(delay_ms)
+
+    return _should_abort() and abort_sensor_value is not None and GPIO.input(sensor_read) == abort_sensor_value
 
 
 def _apply_default_state(valve_pins: list[int]) -> None:
@@ -237,16 +267,44 @@ def _run(config: dict):
             if state == _IDLE:
                 if sensor_value == GPIO.HIGH:
                     logger.info("Sensor circuit closed (water at top) — starting fill sequence")
-                    _run_sequence(valve_pins, fill_seq, timings, lambda: _running)
-                    state = _FILLING
-                    logger.info("State → FILLING")
+                    interrupted = _run_sequence(
+                        valve_pins, fill_seq, timings,
+                        sensor_read, GPIO.LOW,   # abort if sensor drops (circuit opens)
+                        lambda: _running,
+                    )
+                    if interrupted:
+                        logger.info("Fill sequence interrupted by sensor change — jumping to idle sequence")
+                        _run_sequence(
+                            valve_pins, idle_seq, timings,
+                            sensor_read, GPIO.HIGH,  # abort if sensor rises again
+                            lambda: _running,
+                        )
+                        state = _IDLE
+                        logger.info("State → IDLE (interrupted)")
+                    else:
+                        state = _FILLING
+                        logger.info("State → FILLING")
 
             elif state == _FILLING:
                 if sensor_value == GPIO.LOW:
                     logger.info("Sensor circuit open (water at bottom) — ending fill sequence")
-                    _run_sequence(valve_pins, idle_seq, timings, lambda: _running)
-                    state = _IDLE
-                    logger.info("State → IDLE")
+                    interrupted = _run_sequence(
+                        valve_pins, idle_seq, timings,
+                        sensor_read, GPIO.HIGH,  # abort if sensor rises again
+                        lambda: _running,
+                    )
+                    if interrupted:
+                        logger.info("Idle sequence interrupted by sensor change — jumping to fill sequence")
+                        _run_sequence(
+                            valve_pins, fill_seq, timings,
+                            sensor_read, GPIO.LOW,
+                            lambda: _running,
+                        )
+                        state = _FILLING
+                        logger.info("State → FILLING (interrupted)")
+                    else:
+                        state = _IDLE
+                        logger.info("State → IDLE")
 
             time.sleep(interval)
 
