@@ -401,21 +401,20 @@ function updateDiagram(cfg, states, running) {
   const circuitClosed = sensorVal === 1;  // water at top
   _diagClass('d-sensor-top', circuitClosed ? 'on' : '');
   _diagClass('d-label-sensor-top', circuitClosed ? 'on' : '');
-  _diagClass('d-sensor-bot', !circuitClosed && running ? 'on' : '');
+  _diagClass('d-sensor-bot', !circuitClosed && running ? 'on' : '');  // low = sap drained past bottom sensor
   _diagClass('d-label-sensor-bot', !circuitClosed && running ? 'on' : '');
 
-  // Water level animation: circuit closed = full, open = low
+  // Water level animation:
+  //   topTriggered = circuit closed = sap reached top sensor = tank full, dump starting
+  //   IDLE + running = sap is draining / tank is low
   const topTriggered = circuitClosed;
-  const botTriggered = !circuitClosed && running;
 
-  // Water level: low by default, mid when dumping (top sensor on), full when bottom on
   const waterEl = document.getElementById('d-water');
   if (waterEl) {
     let waterY, waterH;
-    if (!running)        { waterY = 288; waterH = 10; }  // empty-ish
-    else if (botTriggered){ waterY = 84;  waterH = 214; } // full
-    else if (topTriggered){ waterY = 150; waterH = 148; } // mid-fill
-    else                  { waterY = 270; waterH = 28;  } // low
+    if (!running)         { waterY = 288; waterH = 10;  }  // stopped — empty
+    else if (topTriggered){ waterY = 84;  waterH = 214; }  // top sensor on — tank full, dumping
+    else                  { waterY = 260; waterH = 38;  }  // idle/waiting — tank low
     waterEl.setAttribute('y', waterY);
     waterEl.setAttribute('height', waterH);
   }
@@ -455,7 +454,7 @@ function updateDiagram(cfg, states, running) {
     if (!running) {
       phase.textContent = 'Stopped';
       phase.className   = 'idle';
-    } else if (topTriggered && !botTriggered) {
+    } else if (topTriggered) {
       phase.textContent = 'Dumping…';
       phase.className   = 'dumping';
     } else {
