@@ -26,7 +26,7 @@
       font-family: system-ui, -apple-system, sans-serif;
       font-size: 15px;
       line-height: 1.5;
-      padding: 24px 16px;
+      padding: 16px 12px;
     }
 
     h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
@@ -89,33 +89,39 @@
     .btn-stop  { background: var(--red);   color: #fff; }
     .btn-save  { background: var(--accent); color: #fff; }
 
-    /* GPIO monitor */
+    /* GPIO monitor — compact horizontal rows on mobile */
     .gpio-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-      gap: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
     }
     .gpio-item {
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 14px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
+      padding: 8px 12px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      grid-template-rows: auto auto;
+      column-gap: 10px;
+      row-gap: 1px;
+      align-items: center;
     }
-    .gpio-role { font-size: .72rem; font-weight: 700; text-transform: uppercase;
-                 letter-spacing: .07em; color: var(--muted); }
-    .gpio-label { font-size: .95rem; font-weight: 600; }
-    .gpio-pin   { font-size: .8rem; color: var(--muted); }
+    .gpio-role  { font-size: .68rem; font-weight: 700; text-transform: uppercase;
+                  letter-spacing: .07em; color: var(--muted); grid-column: 1; }
+    .gpio-label { font-size: .9rem; font-weight: 600; grid-column: 1; }
+    .gpio-pin   { font-size: .75rem; color: var(--muted); grid-column: 1; }
     .gpio-state {
-      margin-top: 4px;
-      font-size: .82rem;
+      font-size: .78rem;
       font-weight: 700;
       padding: 3px 10px;
       border-radius: 5px;
       display: inline-block;
       width: fit-content;
+      grid-column: 2;
+      grid-row: 1 / 4;
+      align-self: center;
+      white-space: nowrap;
     }
     .state-high { background: #14532d55; color: var(--green); border: 1px solid #166534; }
     .state-low  { background: #1e293b;   color: var(--muted); border: 1px solid var(--border); }
@@ -173,8 +179,8 @@
     /* -----------------------------------------------------------------------
        System diagram
     ----------------------------------------------------------------------- */
-    #diagram-wrap { width: 100%; overflow-x: auto; }
-    #system-diagram { display: block; margin: 0 auto; max-width: 540px; width: 100%; }
+    #diagram-wrap { width: 100%; }
+    #system-diagram { display: block; width: 100%; height: auto; }
 
     /* Base — inactive */
     .d-pipe   { stroke: #334155; stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; transition: stroke .35s; }
@@ -220,38 +226,63 @@
     .timing-table { display: flex; flex-direction: column; gap: 8px; }
     .timing-row {
       display: grid;
-      grid-template-columns: 1fr 120px 120px;
-      align-items: center;
-      gap: 10px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 8px 12px;
-    }
-    .timing-label { font-size: .875rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .timing-sub   { font-size: .72rem; color: var(--muted); margin-top: 2px; }
-
-    /* Sequence builder */
-    .seq-block { display: flex; flex-direction: column; gap: 6px; }
-    .seq-step {
-      display: grid;
-      grid-template-columns: 28px 1fr 80px 110px 32px;
+      grid-template-columns: 1fr minmax(0,110px) minmax(0,110px);
       align-items: center;
       gap: 8px;
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 6px;
-      padding: 7px 10px;
-      font-size: .85rem;
+      padding: 8px 10px;
     }
-    .seq-step-num { color: var(--muted); font-size: .75rem; text-align: center; }
+    .timing-label { font-size: .875rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .timing-sub   { font-size: .72rem; color: var(--muted); margin-top: 2px; }
+
+    /* Sequence builder */
+    .seq-block { display: flex; flex-direction: column; gap: 8px; }
+
+    /* Hide the column header on mobile — labels are inlined per field */
+    .seq-header { display: none; }
+
+    .seq-step {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: grid;
+      /* # | fields block | × */
+      grid-template-columns: 24px 1fr 32px;
+      gap: 8px;
+      align-items: start;
+    }
+    .seq-step-num {
+      color: var(--muted);
+      font-size: .75rem;
+      font-weight: 700;
+      padding-top: 6px;
+      text-align: center;
+    }
+    /* The three fields stack vertically inside their cell */
+    .seq-fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .seq-field { display: flex; flex-direction: column; gap: 3px; }
+    .seq-field-wide { grid-column: 1 / -1; }
+    .seq-field label {
+      font-size: .68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+    }
     .seq-step select, .seq-step input {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 5px;
       color: var(--text);
-      font-size: .82rem;
-      padding: 5px 8px;
+      font-size: .875rem;
+      padding: 6px 8px;
       width: 100%;
       outline: none;
     }
@@ -262,9 +293,10 @@
       border-radius: 5px;
       color: var(--muted);
       cursor: pointer;
-      font-size: 1rem;
+      font-size: .9rem;
       line-height: 1;
-      padding: 4px 6px;
+      padding: 5px 6px;
+      margin-top: 2px;
       transition: color .15s, border-color .15s;
     }
     .btn-icon:hover { color: var(--red); border-color: var(--red); }
@@ -274,21 +306,13 @@
       border-radius: 6px;
       color: var(--muted);
       cursor: pointer;
-      font-size: .82rem;
-      padding: 7px;
+      font-size: .85rem;
+      padding: 9px;
       text-align: center;
       width: 100%;
       transition: color .15s, border-color .15s;
     }
     .btn-add-step:hover { color: var(--accent); border-color: var(--accent); }
-    .seq-header {
-      display: grid;
-      grid-template-columns: 28px 1fr 80px 110px 32px;
-      gap: 8px;
-      padding: 0 10px;
-    }
-    .seq-header span { font-size: .7rem; font-weight: 700; text-transform: uppercase;
-                       letter-spacing: .06em; color: var(--muted); }
   </style>
 </head>
 <body>
@@ -324,8 +348,8 @@
   </div>
 
   <!-- System diagram -->
-  <div class="card">
-    <h2>System Diagram</h2>
+  <div class="card" style="padding-left:8px;padding-right:8px">
+    <h2 style="padding-left:8px">System Diagram</h2>
     <div id="diagram-wrap">
       <!--
         Coordinate layout (viewBox 0 0 540 400):

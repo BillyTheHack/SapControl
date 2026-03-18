@@ -108,13 +108,24 @@ function appendStepRow(container, index, step, cfg) {
 
   row.innerHTML = `
     <span class="seq-step-num">${index + 1}</span>
-    <select class="step-valve">${opts}</select>
-    <select class="step-state">
-      <option value="1" ${step.state === 1 ? 'selected' : ''}>Open (1)</option>
-      <option value="0" ${step.state === 0 ? 'selected' : ''}>Close (0)</option>
-    </select>
-    <input type="number" class="step-delay" min="0" max="30000" step="50"
-           value="${step.delay_after_ms ?? 0}" />
+    <div class="seq-fields">
+      <div class="seq-field seq-field-wide">
+        <label>Valve</label>
+        <select class="step-valve">${opts}</select>
+      </div>
+      <div class="seq-field">
+        <label>State</label>
+        <select class="step-state">
+          <option value="1" ${step.state === 1 ? 'selected' : ''}>Open</option>
+          <option value="0" ${step.state === 0 ? 'selected' : ''}>Close</option>
+        </select>
+      </div>
+      <div class="seq-field">
+        <label>Delay after (ms)</label>
+        <input type="number" class="step-delay" min="0" max="30000" step="50"
+               value="${step.delay_after_ms ?? 0}" />
+      </div>
+    </div>
     <button class="btn-icon" title="Remove step" onclick="removeStep(this)">✕</button>
   `;
   container.appendChild(row);
