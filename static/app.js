@@ -35,11 +35,8 @@ function renderConfigForm(cfg) {
   const table = document.getElementById('pin-table');
   table.innerHTML = '';
 
-  const sensors = cfg.sensor_gpios  ?? [];
-  const slabels = cfg.sensor_labels ?? [];
-  sensors.forEach((pin, i) => {
-    table.appendChild(makePinRow('Sensor', pin, slabels[i] ?? `Sensor ${i + 1}`));
-  });
+  table.appendChild(makePinRow('Sensor (drive)', cfg.sensor_drive_gpio, cfg.sensor_label ?? 'Sensor'));
+  table.appendChild(makePinRow('Sensor (read)',  cfg.sensor_read_gpio,  cfg.sensor_label ?? 'Sensor'));
 
   const valves  = cfg.valve_gpios  ?? [];
   const vlabels = cfg.valve_labels ?? [];
@@ -148,16 +145,9 @@ function renderGpioGrid(cfg, states) {
   const grid = document.getElementById('gpio-grid');
   grid.innerHTML = '';
 
-  const sensors = cfg.sensor_gpios  ?? [];
-  const slabels = cfg.sensor_labels ?? [];
-  sensors.forEach((pin, i) => {
-    grid.appendChild(makeGpioItem(
-      'Sensor',
-      slabels[i] ?? `Sensor ${i + 1}`,
-      pin,
-      states[`gpio_${pin}`],
-    ));
-  });
+  const label = cfg.sensor_label ?? 'Sensor';
+  grid.appendChild(makeGpioItem('Sensor (drive)', label, cfg.sensor_drive_gpio, states[`gpio_${cfg.sensor_drive_gpio}`]));
+  grid.appendChild(makeGpioItem('Sensor (read)',  label, cfg.sensor_read_gpio,  states[`gpio_${cfg.sensor_read_gpio}`]));
 
   const valves  = cfg.valve_gpios  ?? [];
   const vlabels = cfg.valve_labels ?? [];
@@ -264,24 +254,23 @@ const VALVE_DIAGRAM_MAP = [
 function updateDiagram(cfg, states, running) {
   if (!cfg) return;
 
-  const sensorPins  = cfg.sensor_gpios  ?? [];
-  const valvePins   = cfg.valve_gpios   ?? [];
-  const valveLabels = cfg.valve_labels  ?? [];
-  const sensorLabels= cfg.sensor_labels ?? [];
+  const sensorReadPin = cfg.sensor_read_gpio;
+  const valvePins     = cfg.valve_gpios  ?? [];
+  const valveLabels   = cfg.valve_labels ?? [];
 
-  // ── Sensors ──────────────────────────────────────────────────────────────
-  const sensorIds = ['d-sensor-top', 'd-sensor-bot'];
-  const labelIds  = ['d-label-sensor-top', 'd-label-sensor-bot'];
-  sensorPins.forEach((pin, i) => {
-    const val = states[`gpio_${pin}`];
-    const on  = val === 1;
-    _diagClass(sensorIds[i],  on ? 'on' : '');
-    _diagClass(labelIds[i],   on ? 'on' : '');
-  });
+  // ── Sensor ───────────────────────────────────────────────────────────────
+  // Circuit closed (HIGH) = water at top = filling about to start
+  // Circuit open  (LOW)   = water dropped to bottom = draining
+  const sensorVal     = states[`gpio_${sensorReadPin}`];
+  const circuitClosed = sensorVal === 1;  // water at top
+  _diagClass('d-sensor-top', circuitClosed ? 'on' : '');
+  _diagClass('d-label-sensor-top', circuitClosed ? 'on' : '');
+  _diagClass('d-sensor-bot', !circuitClosed && running ? 'on' : '');
+  _diagClass('d-label-sensor-bot', !circuitClosed && running ? 'on' : '');
 
-  // Determine fill phase from sensor states for water level animation
-  const topTriggered = states[`gpio_${sensorPins[0]}`] === 1;
-  const botTriggered = states[`gpio_${sensorPins[1]}`] === 1;
+  // Water level animation: circuit closed = full, open = low
+  const topTriggered = circuitClosed;
+  const botTriggered = !circuitClosed && running;
 
   // Water level: low by default, mid when filling (top sensor on), full when bottom on
   const waterEl = document.getElementById('d-water');

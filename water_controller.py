@@ -90,9 +90,10 @@ def start(config: dict) -> bool:
     Returns False if already running.
 
     Expected config keys (set in config.json):
-        sensor_gpios    : list  — BCM pin numbers for water-level sensors
-        valve_gpios     : list  — BCM pin numbers for relay-controlled valves
-        poll_interval_ms: int   — how often to sample GPIO (default 500)
+        sensor_drive_gpio: int  — BCM output pin that powers the sensor circuit
+        sensor_read_gpio : int  — BCM input pin; HIGH = circuit closed (water at top)
+        valve_gpios      : list — BCM pin numbers for relay-controlled valves
+        poll_interval_ms : int  — how often to sample GPIO (default 500)
     """
     global _running, _thread
 
@@ -150,28 +151,30 @@ _FILLING = "FILLING"  # top triggered, waiting for bottom sensor
 def _run(config: dict):
     global _running
 
-    sensor_pins: list[int] = config["sensor_gpios"]
-    valve_pins:  list[int] = config["valve_gpios"]
-    interval:    float     = config.get("poll_interval_ms", 500) / 1000.0
+    sensor_drive: int      = config["sensor_drive_gpio"]
+    sensor_read:  int      = config["sensor_read_gpio"]
+    valve_pins:   list[int] = config["valve_gpios"]
+    interval:     float    = config.get("poll_interval_ms", 500) / 1000.0
 
     # Named pin references (by index matching config.json order)
-    # sensor_pins[0] = top sensor    (GPIO 8)
-    # sensor_pins[1] = bottom sensor (GPIO 7)
-    # valve_pins[0]  = Valve Air         (GPIO 14)
-    # valve_pins[1]  = Valve Vacuum      (GPIO 15)
-    # valve_pins[2]  = Valve Water Pump  (GPIO 18)
-    # valve_pins[3]  = Valve Maple Trees (GPIO 24)
-    # valve_pins[4]  = Water Pump        (GPIO 25)
+    # sensor_drive  = output pin powering the sensor circuit (GPIO 8)
+    # sensor_read   = input pin; HIGH = water circuit closed (GPIO 7)
+    # valve_pins[0] = Valve Air         (GPIO 14)
+    # valve_pins[1] = Valve Vacuum      (GPIO 15)
+    # valve_pins[2] = Valve Water Pump  (GPIO 18)
+    # valve_pins[3] = Valve Maple Trees (GPIO 24)
+    # valve_pins[4] = Water Pump        (GPIO 25)
 
     # --- GPIO setup ---------------------------------------------------------
-    for pin in sensor_pins:
-        GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+    GPIO.setup(sensor_drive, GPIO.OUT, initial=GPIO.HIGH)  # always energised
+    GPIO.setup(sensor_read,  GPIO.IN,  pull_up_down=GPIO.PUD_DOWN)
     for pin in valve_pins:
         GPIO.setup(pin, GPIO.OUT, initial=GPIO.LOW)
 
     logger.info(
-        "Task running — sensors: %s, valves: %s, interval: %.3fs",
-        [f"GPIO{p}" for p in sensor_pins],
+        "Task running — sensor drive: GPIO%s, sensor read: GPIO%s, valves: %s, interval: %.3fs",
+        sensor_drive,
+        sensor_read,
         [f"GPIO{p}" for p in valve_pins],
         interval,
     )
@@ -183,13 +186,13 @@ def _run(config: dict):
 
     try:
         while _running:
-            sensor_values = [GPIO.input(p) for p in sensor_pins]
-            valve_values  = [GPIO.input(p) for p in valve_pins]
+            sensor_value = GPIO.input(sensor_read)
+            valve_values = [GPIO.input(p) for p in valve_pins]
 
             # Update shared state (read by web UI)
             with _lock:
-                for pin, val in zip(sensor_pins, sensor_values):
-                    _gpio_states[f"gpio_{pin}"] = val
+                _gpio_states[f"gpio_{sensor_drive}"] = GPIO.HIGH  # always driven
+                _gpio_states[f"gpio_{sensor_read}"]  = sensor_value
                 for pin, val in zip(valve_pins, valve_values):
                     _gpio_states[f"gpio_{pin}"] = val
 
@@ -197,22 +200,17 @@ def _run(config: dict):
             # State machine
             #
             # IDLE:
-            #   Wait for top sensor (sensor_pins[0]) to trigger (HIGH).
-            #   When triggered → switch valves for filling and enter FILLING.
+            #   sensor_read HIGH = water circuit closed = tank full at top.
+            #   Trigger fill sequence and enter FILLING.
             #
             # FILLING:
-            #   Wait for bottom sensor (sensor_pins[1]) to trigger (HIGH).
-            #   When triggered → switch valves back and return to IDLE.
-            #   If _running is cleared while in FILLING the finally block
-            #   handles the reset, so no special case is needed here.
+            #   sensor_read LOW = circuit open = water dropped to bottom level.
+            #   End fill sequence and return to IDLE.
             # ----------------------------------------------------------------
 
-            sensor_top    = sensor_values[0]
-            sensor_bottom = sensor_values[1]
-
             if state == _IDLE:
-                if sensor_top == GPIO.HIGH:
-                    logger.info("Top sensor triggered — starting fill sequence")
+                if sensor_value == GPIO.HIGH:
+                    logger.info("Sensor circuit closed (water at top) — starting fill sequence")
                     # valve_pins order: Air, Vacuum, Water Pump, Maple Trees, Water Pump relay
                     GPIO.output(valve_pins[3], GPIO.LOW)   # close Maple Trees
                     GPIO.output(valve_pins[2], GPIO.HIGH)  # open  Water Pump valve
@@ -223,8 +221,8 @@ def _run(config: dict):
                     logger.info("State → FILLING")
 
             elif state == _FILLING:
-                if sensor_bottom == GPIO.HIGH:
-                    logger.info("Bottom sensor triggered — ending fill sequence")
+                if sensor_value == GPIO.LOW:
+                    logger.info("Sensor circuit open (water at bottom) — ending fill sequence")
                     GPIO.output(valve_pins[4], GPIO.LOW)   # disable Water Pump relay
                     GPIO.output(valve_pins[0], GPIO.LOW)   # close Air
                     GPIO.output(valve_pins[2], GPIO.LOW)   # close Water Pump valve
@@ -240,6 +238,6 @@ def _run(config: dict):
     finally:
         # Always restore valves to their configured default state on exit
         _apply_default_state(valve_pins, config)
-        GPIO.cleanup(sensor_pins + valve_pins)
+        GPIO.cleanup([sensor_drive, sensor_read] + valve_pins)
         _running = False
         logger.info("Background task stopped, GPIO cleaned up")

@@ -38,10 +38,12 @@ app = Flask(__name__)
 CONFIG_PATH = Path(__file__).parent / "config.json"
 
 DEFAULT_CONFIG = {
-    "sensor_gpios": [17],
+    "sensor_drive_gpio": 8,
+    "sensor_read_gpio": 7,
     "valve_gpios": [27, 22],
-    "sensor_labels": ["Water Level Sensor"],
+    "sensor_label": "Water Level Sensor",
     "valve_labels": ["Inlet Valve", "Outlet Valve"],
+    "default_valve_states": [0, 0],
     "poll_interval_ms": 500,
 }
 
@@ -80,9 +82,10 @@ def validate_config(data: dict) -> tuple[dict | None, str | None]:
 
         # Preserve all pin/label fields from the existing config unchanged
         return {
-            "sensor_gpios":        existing["sensor_gpios"],
+            "sensor_drive_gpio":   existing["sensor_drive_gpio"],
+            "sensor_read_gpio":    existing["sensor_read_gpio"],
             "valve_gpios":         existing["valve_gpios"],
-            "sensor_labels":       existing["sensor_labels"],
+            "sensor_label":        existing["sensor_label"],
             "valve_labels":        existing["valve_labels"],
             "default_valve_states": existing.get("default_valve_states",
                                         [0] * len(existing["valve_gpios"])),
