@@ -248,9 +248,12 @@ def _run(config: dict):
     _apply_default_state(valve_pins, _valve_level)
 
     state = _IDLE
+    first_loop = True
 
     try:
         while _running:
+            # Invert the sensor reading because the 110V relay is normally closed
+            # sensor_value = GPIO.LOW if GPIO.input(sensor_read) == GPIO.HIGH else GPIO.HIGH
             sensor_value = GPIO.input(sensor_read)
             valve_values = [GPIO.input(p) for p in valve_pins]
 
@@ -276,7 +279,8 @@ def _run(config: dict):
             # ----------------------------------------------------------------
 
             if state == _IDLE:
-                if sensor_value == GPIO.HIGH:
+                if sensor_value == GPIO.HIGH or first_loop:
+                    first_loop = False
                     logger.info("Sensor circuit closed (sap at top) — starting dump sequence")
                     interrupted = _run_sequence(
                         valve_pins, dump_seq, timings,
