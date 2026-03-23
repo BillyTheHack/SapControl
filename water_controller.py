@@ -81,6 +81,31 @@ def is_running() -> bool:
     return _running
 
 
+def apply_initial_default_state(config: dict) -> None:
+    """Set valves to their configured default state without starting the task.
+
+    Call once at app startup so that valves are in a safe state even before
+    the water controller is started.
+    """
+    valve_pins: list[int] = config["valve_gpios"]
+    inverted: bool = config.get("valve_inverted", True)
+    default_states: list[int] = config.get("valve_default_state", [0] * len(valve_pins))
+
+    def _valve_level(logical_state: int) -> int:
+        return (1 - logical_state) if inverted else logical_state
+
+    for pin in valve_pins:
+        GPIO.setup(pin, GPIO.OUT, initial=_valve_level(0))
+
+    _apply_default_state(valve_pins, _valve_level, default_states)
+
+    with _lock:
+        for pin, ds in zip(valve_pins, default_states):
+            _gpio_states[f"gpio_{pin}"] = ds
+
+    logger.info("Initial default valve state applied")
+
+
 # ---------------------------------------------------------------------------
 # Task lifecycle
 # ---------------------------------------------------------------------------
@@ -196,12 +221,19 @@ def _run_sequence(
     return _should_abort() and abort_sensor_value is not None and GPIO.input(sensor_read) == abort_sensor_value
 
 
-def _apply_default_state(valve_pins: list[int], valve_level=None) -> None:
-    """Close all valves (logical 0) — used on startup and emergency stop."""
-    physical_off = valve_level(0) if valve_level else GPIO.LOW
-    for pin in valve_pins:
-        GPIO.output(pin, physical_off)
-    logger.info("All valves closed (physical level %s)", physical_off)
+def _apply_default_state(valve_pins: list[int], valve_level=None, default_states: list[int] | None = None) -> None:
+    """Set all valves to their configured default state — used on startup and shutdown.
+
+    If *default_states* is provided it must be a list of logical values (0/1) with
+    one entry per valve.  Otherwise every valve is closed (logical 0).
+    """
+    if default_states is None:
+        default_states = [0] * len(valve_pins)
+    for pin, logical in zip(valve_pins, default_states):
+        physical = valve_level(logical) if valve_level else logical
+        GPIO.output(pin, physical)
+    labels = [f"GPIO{p}={'open' if s else 'closed'}" for p, s in zip(valve_pins, default_states)]
+    logger.info("Valves set to default state: %s", ", ".join(labels))
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +256,7 @@ def _run(config: dict):
     timings:      list[dict] = config.get("valve_timings", [])
     dump_seq:     list[dict] = config.get("dump_sequence", [])
     idle_seq:     list[dict] = config.get("idle_sequence", [])
+    default_st:   list[int]  = config.get("valve_default_state", [0] * len(valve_pins))
 
     def _valve_level(logical_state: int) -> int:
         """Translate logical 1=open/0=close to the physical GPIO level."""
@@ -245,7 +278,7 @@ def _run(config: dict):
     )
 
     # Apply default state at startup
-    _apply_default_state(valve_pins, _valve_level)
+    _apply_default_state(valve_pins, _valve_level, default_st)
 
     state = _IDLE
     first_loop = True
@@ -330,15 +363,15 @@ def _run(config: dict):
     except Exception:
         logger.exception("Unhandled exception in background task")
     finally:
-        # Always close all valves on exit
-        _apply_default_state(valve_pins, _valve_level)
+        # Restore default valve state on exit
+        _apply_default_state(valve_pins, _valve_level, default_st)
         GPIO.cleanup([sensor_drive, sensor_read] + valve_pins)
         # Update shared state to reflect the post-cleanup reality so the UI
         # shows accurate values instead of whatever was last polled mid-run.
         with _lock:
             _gpio_states[f"gpio_{sensor_drive}"] = 0  # pin released
             _gpio_states[f"gpio_{sensor_read}"]  = 0  # pin released
-            for pin in valve_pins:
-                _gpio_states[f"gpio_{pin}"] = 0       # logical closed
+            for pin, ds in zip(valve_pins, default_st):
+                _gpio_states[f"gpio_{pin}"] = ds      # logical default state
         _running = False
         logger.info("Background task stopped, GPIO cleaned up")

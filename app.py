@@ -57,6 +57,7 @@ DEFAULT_CONFIG = {
         {"valve_index": 0, "state": 0, "delay_after_ms": 0},
         {"valve_index": 1, "state": 1, "delay_after_ms": 0},
     ],
+    "valve_default_state": [0, 0],
 }
 
 
@@ -143,6 +144,17 @@ def validate_config(data: dict) -> tuple[dict | None, str | None]:
         if err:
             return None, err
 
+        # --- valve_default_state -----------------------------------------------
+        raw_defaults = data.get("valve_default_state", existing.get("valve_default_state", [0] * n_valves))
+        if len(raw_defaults) != n_valves:
+            return None, f"valve_default_state must have {n_valves} entries (one per valve)"
+        valve_default_state = []
+        for i, v in enumerate(raw_defaults):
+            s = int(v)
+            if s not in (0, 1):
+                return None, f"valve_default_state[{i}] must be 0 or 1"
+            valve_default_state.append(s)
+
         return {
             "sensor_drive_gpio": existing["sensor_drive_gpio"],
             "sensor_read_gpio":  existing["sensor_read_gpio"],
@@ -154,6 +166,7 @@ def validate_config(data: dict) -> tuple[dict | None, str | None]:
             "valve_timings":     valve_timings,
             "dump_sequence":     dump_seq,
             "idle_sequence":     idle_seq,
+            "valve_default_state": valve_default_state,
         }, None
 
     except (KeyError, TypeError, ValueError) as exc:
@@ -263,6 +276,10 @@ def gpio_stream():
 # Entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    # Apply default valve state before starting the server so valves are
+    # in a safe state even before the water controller task is started.
+    water_controller.apply_initial_default_state(load_config())
+
     # host="0.0.0.0" makes it reachable from the local network (other devices
     # on the same LAN as the Pi).  Change to "127.0.0.1" for local-only.
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
