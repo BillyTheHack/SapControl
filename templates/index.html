@@ -17,6 +17,7 @@
       --green: #22c55e;
       --red: #ef4444;
       --yellow: #f59e0b;
+      --orange: #f97316;
       --radius: 10px;
     }
 
@@ -67,6 +68,21 @@
     .dot { width: 8px; height: 8px; border-radius: 50%; }
     .dot-green { background: var(--green); animation: pulse-green 2s infinite; }
     .dot-red   { background: var(--red); }
+
+    .mode-badge {
+      font-size: .72rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 5px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      background: #1e293b;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .mode-badge[data-mode="sequence"]   { color: var(--accent); border-color: #1d4ed8; background: #1e3a5f44; }
+    .mode-badge[data-mode="alternance"] { color: var(--orange); border-color: #c2410c; background: #431a0044; }
+    .mode-badge[data-mode="manual"]     { color: var(--yellow); border-color: #a16207; background: #422006aa; }
 
     @keyframes pulse-green {
       0%, 100% { opacity: 1; }
@@ -177,6 +193,123 @@
     hr { border: none; border-top: 1px solid var(--border); margin: 4px 0 16px; }
 
     /* -----------------------------------------------------------------------
+       Mode tabs
+    ----------------------------------------------------------------------- */
+    .mode-tabs {
+      display: flex;
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 4px;
+    }
+    .mode-tab {
+      flex: 1;
+      background: var(--bg);
+      border: none;
+      color: var(--muted);
+      font-size: .82rem;
+      font-weight: 600;
+      padding: 10px 6px;
+      cursor: pointer;
+      text-align: center;
+      transition: background .15s, color .15s;
+      border-right: 1px solid var(--border);
+    }
+    .mode-tab:last-child { border-right: none; }
+    .mode-tab:hover { color: var(--text); }
+    .mode-tab.active { background: var(--accent); color: #fff; }
+    .mode-tab[data-mode="alternance"].active { background: var(--orange); }
+    .mode-tab[data-mode="manual"].active { background: var(--yellow); color: #1a1d27; }
+
+    .mode-section { display: none; }
+    .mode-section.active { display: block; }
+
+    /* -----------------------------------------------------------------------
+       Manual mode — valve toggle switches
+    ----------------------------------------------------------------------- */
+    .manual-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .manual-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+    }
+    .manual-row .valve-name {
+      flex: 1;
+      font-size: .9rem;
+      font-weight: 600;
+    }
+    .manual-row .valve-pin {
+      font-size: .72rem;
+      color: var(--muted);
+    }
+
+    /* Toggle switch */
+    .toggle {
+      position: relative;
+      width: 48px;
+      height: 26px;
+      flex-shrink: 0;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle .slider {
+      position: absolute;
+      inset: 0;
+      background: #334155;
+      border-radius: 26px;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    .toggle .slider::before {
+      content: '';
+      position: absolute;
+      left: 3px;
+      top: 3px;
+      width: 20px;
+      height: 20px;
+      background: var(--text);
+      border-radius: 50%;
+      transition: transform .2s;
+    }
+    .toggle input:checked + .slider { background: var(--green); }
+    .toggle input:checked + .slider::before { transform: translateX(22px); }
+
+    .toggle-label {
+      font-size: .75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      min-width: 38px;
+    }
+    .toggle-label.on  { color: var(--green); }
+    .toggle-label.off { color: var(--muted); }
+
+    .manual-hint {
+      font-size: .78rem;
+      color: var(--muted);
+      font-style: italic;
+      padding: 4px 0 0;
+    }
+
+    /* -----------------------------------------------------------------------
+       Alternance mode — delay fields
+    ----------------------------------------------------------------------- */
+    .alt-delay-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    /* -----------------------------------------------------------------------
        System diagram
     ----------------------------------------------------------------------- */
     #diagram-wrap { width: 100%; }
@@ -249,7 +382,7 @@
       border-radius: 8px;
       padding: 10px 12px;
       display: grid;
-      /* # | fields block | × */
+      /* # | fields block | x */
       grid-template-columns: 24px 1fr 32px;
       gap: 8px;
       align-items: start;
@@ -331,6 +464,7 @@
         <span id="task-dot" class="dot dot-red"></span>
         <span id="task-label">Stopped</span>
       </span>
+      <span id="mode-badge" class="mode-badge" data-mode="sequence">Sequence</span>
       <div class="btn-row">
         <button id="btn-start" class="btn btn-start" onclick="taskAction('start')">Start</button>
         <button id="btn-stop"  class="btn btn-stop"  onclick="taskAction('stop')" disabled>Stop</button>
@@ -351,96 +485,60 @@
   <div class="card" style="padding-left:8px;padding-right:8px">
     <h2 style="padding-left:8px">System Diagram</h2>
     <div id="diagram-wrap">
-      <!--
-        Coordinate layout (viewBox 0 0 540 400):
-
-        Tank rect:  x=180 y=80  w=180 h=220   (centre of canvas)
-
-        Valves (diamond symbols, 14×14):
-          Vacuum       top-left    cx=90  cy=100  → pipe up-left out of tank top-left corner
-          Air          mid-left    cx=90  cy=190  → pipe left into tank mid-left
-          Water Pump V bottom-left cx=90  cy=300  → pipe left into tank bottom-left
-          Maple Trees  top-right   cx=450 cy=100  → pipe up-right out of tank top-right corner
-        Pump relay circle: cx=270 cy=370 r=20     (below tank centre)
-
-        Sensors (small rect inside tank):
-          Top sensor    x=280 y=105
-          Bottom sensor x=280 y=255
-      -->
       <svg id="system-diagram" viewBox="0 0 540 420" xmlns="http://www.w3.org/2000/svg">
 
-        <!-- ── Tank body ───────────────────────────────────────────── -->
+        <!-- Tank body -->
         <rect class="d-tank" x="180" y="80" width="180" height="220" rx="6"/>
 
-        <!-- Water level (animated via JS: height + y change) -->
+        <!-- Water level -->
         <clipPath id="tank-clip">
           <rect x="182" y="82" width="176" height="216" rx="4"/>
         </clipPath>
         <rect id="d-water" class="d-water" x="182" y="252" width="176" height="46" clip-path="url(#tank-clip)"/>
 
-        <!-- ── Sensor: Top ─────────────────────────────────────────── -->
-        <!-- pipe stub inside tank to sensor dot -->
+        <!-- Sensor: Top -->
         <line class="d-pipe" x1="270" y1="80" x2="270" y2="115"/>
         <circle id="d-sensor-top" class="d-sensor" cx="270" cy="125" r="10"/>
         <text class="d-label" id="d-label-sensor-top" x="270" y="148">Top</text>
 
-        <!-- ── Sensor: Bottom ─────────────────────────────────────── -->
+        <!-- Sensor: Bottom -->
         <line class="d-pipe" x1="270" y1="300" x2="270" y2="265"/>
         <circle id="d-sensor-bot" class="d-sensor" cx="270" cy="255" r="10"/>
         <text class="d-label" id="d-label-sensor-bot" x="270" y="278">Bottom</text>
 
-        <!-- ══════════════════════════════════════════════════════════
-             LEFT SIDE VALVES
-             Vacuum (top-left) → Air (mid-left) → Water Pump valve (bottom-left)
-             All connect to left wall of tank via horizontal pipes.
-        ═══════════════════════════════════════════════════════════ -->
-
-        <!-- Vacuum valve — top-left, pipe exits tank top-left corner upward -->
-        <!-- Pipe: tank top-left corner → up → out -->
+        <!-- Vacuum valve -->
         <polyline id="d-pipe-vacuum" class="d-pipe" points="180,100 90,100 90,40"/>
-        <!-- Valve diamond at cx=90 cy=100 -->
         <polygon id="d-valve-vacuum" class="d-valve"
                  points="90,86 104,100 90,114 76,100"/>
         <text class="d-label" id="d-label-vacuum" x="90" y="130">Vacuum</text>
 
-        <!-- Air valve — mid-left, horizontal pipe into tank -->
+        <!-- Air valve -->
         <line id="d-pipe-air" class="d-pipe" x1="40" y1="190" x2="180" y2="190"/>
         <polygon id="d-valve-air" class="d-valve"
                  points="90,176 104,190 90,204 76,190"/>
         <text class="d-label" id="d-label-air" x="90" y="218">Air</text>
 
-        <!-- Water Pump valve — bottom-left, pipe into tank bottom -->
+        <!-- Water Pump valve -->
         <polyline id="d-pipe-wp-valve" class="d-pipe" points="40,300 90,300 180,300"/>
         <polygon id="d-valve-wp" class="d-valve"
                  points="90,286 104,300 90,314 76,300"/>
         <text class="d-label" id="d-label-wp-valve" x="90" y="323">Water Pump<tspan x="90" dy="13">Valve</tspan></text>
 
-        <!-- ══════════════════════════════════════════════════════════
-             RIGHT SIDE — Maple Trees valve (top-right, output)
-        ═══════════════════════════════════════════════════════════ -->
-
-        <!-- Pipe: tank top-right corner → right → up and out -->
+        <!-- Maple Trees valve -->
         <polyline id="d-pipe-maple" class="d-pipe" points="360,100 450,100 450,40"/>
         <polygon id="d-valve-maple" class="d-valve"
                  points="450,86 464,100 450,114 436,100"/>
         <text class="d-label" id="d-label-maple" x="450" y="130">Maple Trees</text>
 
-        <!-- ══════════════════════════════════════════════════════════
-             BOTTOM CENTRE — Water Pump relay
-        ═══════════════════════════════════════════════════════════ -->
-
-        <!-- Pipe: tank bottom centre → down → pump -->
+        <!-- Water Pump relay -->
         <line id="d-pipe-pump" class="d-pipe" x1="270" y1="300" x2="270" y2="370"/>
         <circle id="d-pump" class="d-pump" cx="270" cy="375" r="18"/>
-        <!-- Pump impeller symbol -->
         <text style="fill:#475569;font-size:16px;text-anchor:middle;dominant-baseline:central;pointer-events:none"
-              id="d-pump-icon" x="270" y="376">⟳</text>
+              id="d-pump-icon" x="270" y="376">&#x27F3;</text>
         <text class="d-label" id="d-label-pump" x="270" y="408">Water Pump</text>
 
-        <!-- ══════════════════════════════════════════════════════════
-             Phase / state banner
-        ═══════════════════════════════════════════════════════════ -->
-        <text id="d-phase" x="270" y="22">—</text>
+        <!-- Phase banner -->
+        <text id="d-phase" x="270" y="22">&mdash;</text>
 
       </svg>
     </div>
@@ -485,26 +583,79 @@
 
       <hr />
 
-      <!-- Dump sequence -->
+      <!-- Valve default state -->
       <div>
-        <label style="display:block;margin-bottom:8px">Dump sequence <span style="font-weight:400;color:var(--muted)">(runs when top sensor triggers)</span></label>
-        <div class="seq-header">
-          <span>#</span><span>Valve</span><span>State</span><span>Delay after (ms)</span><span></span>
-        </div>
-        <div id="dump-seq" class="seq-block"></div>
-        <button class="btn-add-step" onclick="addStep('dump-seq')">+ Add step</button>
+        <label style="display:block;margin-bottom:8px">Valve default state <span style="font-weight:400;color:var(--muted)">(applied on start/stop)</span></label>
+        <div id="default-state-table" class="timing-table"></div>
       </div>
 
       <hr />
 
-      <!-- Idle sequence -->
+      <!-- ═══════════════════════════════════════════════════════
+           Mode selector
+      ═══════════════════════════════════════════════════════ -->
       <div>
-        <label style="display:block;margin-bottom:8px">Idle sequence <span style="font-weight:400;color:var(--muted)">(runs when bottom sensor triggers)</span></label>
-        <div class="seq-header">
-          <span>#</span><span>Valve</span><span>State</span><span>Delay after (ms)</span><span></span>
+        <label style="display:block;margin-bottom:8px">Operating mode</label>
+        <div class="mode-tabs" id="mode-tabs">
+          <button class="mode-tab active" data-mode="sequence"   onclick="selectMode('sequence')">Sequence</button>
+          <button class="mode-tab"        data-mode="alternance" onclick="selectMode('alternance')">Alternance</button>
+          <button class="mode-tab"        data-mode="manual"     onclick="selectMode('manual')">Manual</button>
         </div>
-        <div id="idle-seq" class="seq-block"></div>
-        <button class="btn-add-step" onclick="addStep('idle-seq')">+ Add step</button>
+      </div>
+
+      <!-- ── Sequence mode config ────────────────────────────── -->
+      <div id="mode-sequence" class="mode-section active">
+        <!-- Dump sequence -->
+        <div>
+          <label style="display:block;margin-bottom:8px">Dump sequence <span style="font-weight:400;color:var(--muted)">(runs when top sensor triggers)</span></label>
+          <div id="dump-seq" class="seq-block"></div>
+          <button class="btn-add-step" onclick="addStep('dump-seq')">+ Add step</button>
+        </div>
+
+        <hr />
+
+        <!-- Idle sequence -->
+        <div>
+          <label style="display:block;margin-bottom:8px">Idle sequence <span style="font-weight:400;color:var(--muted)">(runs when bottom sensor triggers)</span></label>
+          <div id="idle-seq" class="seq-block"></div>
+          <button class="btn-add-step" onclick="addStep('idle-seq')">+ Add step</button>
+        </div>
+      </div>
+
+      <!-- ── Alternance mode config ──────────────────────────── -->
+      <div id="mode-alternance" class="mode-section">
+        <div>
+          <label style="display:block;margin-bottom:8px">Sequence A</label>
+          <div id="alt-seq-a" class="seq-block"></div>
+          <button class="btn-add-step" onclick="addStep('alt-seq-a')">+ Add step</button>
+        </div>
+
+        <hr />
+
+        <div class="alt-delay-row">
+          <div class="form-row">
+            <label for="alt-delay-a">Delay A &rarr; B (ms)</label>
+            <input type="number" id="alt-delay-a" min="0" max="300000" step="100" value="5000" />
+          </div>
+          <div class="form-row">
+            <label for="alt-delay-b">Delay B &rarr; A (ms)</label>
+            <input type="number" id="alt-delay-b" min="0" max="300000" step="100" value="5000" />
+          </div>
+        </div>
+
+        <hr />
+
+        <div>
+          <label style="display:block;margin-bottom:8px">Sequence B</label>
+          <div id="alt-seq-b" class="seq-block"></div>
+          <button class="btn-add-step" onclick="addStep('alt-seq-b')">+ Add step</button>
+        </div>
+      </div>
+
+      <!-- ── Manual mode config ──────────────────────────────── -->
+      <div id="mode-manual" class="mode-section">
+        <p class="manual-hint">Toggle each pin individually (sensors + valves). The task must be running in manual mode for switches to take effect.</p>
+        <div id="manual-grid" class="manual-grid" style="margin-top:10px"></div>
       </div>
 
       <div id="config-feedback" class="feedback"></div>

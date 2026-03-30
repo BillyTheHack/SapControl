@@ -9,6 +9,8 @@ Endpoints:
     POST /api/task/stop         Stop the background task
     GET  /api/task/status       Running state + current GPIO values
     GET  /api/gpio/stream       SSE stream of GPIO state updates
+    POST /api/gpio/set          Set a single valve (manual mode only)
+    POST /api/gpio/set-sensor   Set a sensor pin (manual mode only)
 """
 
 import json
@@ -38,6 +40,7 @@ app = Flask(__name__)
 CONFIG_PATH = Path(__file__).parent / "config.json"
 
 DEFAULT_CONFIG = {
+    "mode": "sequence",
     "sensor_drive_gpio": 8,
     "sensor_read_gpio": 7,
     "valve_gpios": [27, 22],
@@ -58,7 +61,15 @@ DEFAULT_CONFIG = {
         {"valve_index": 1, "state": 1, "delay_after_ms": 0},
     ],
     "valve_default_state": [0, 0],
+    "alternance": {
+        "sequence_a": [],
+        "sequence_b": [],
+        "delay_a_to_b_ms": 5000,
+        "delay_b_to_a_ms": 5000,
+    },
 }
+
+VALID_MODES = ("sequence", "alternance", "manual")
 
 
 # ---------------------------------------------------------------------------
@@ -85,14 +96,21 @@ def validate_config(data: dict) -> tuple[dict | None, str | None]:
 
     Pin/label fields are read-only from the UI and always preserved from
     config.json.  The web UI may submit:
+        mode              – "sequence", "alternance", or "manual"
         poll_interval_ms  – int 100-10000
         valve_timings     – list of {open_ms, close_ms} per valve (int 0-30000)
         dump_sequence     – list of {valve_index, state, delay_after_ms}
         idle_sequence     – list of {valve_index, state, delay_after_ms}
+        alternance        – {sequence_a, sequence_b, delay_a_to_b_ms, delay_b_to_a_ms}
     """
     try:
         existing = load_config()
         n_valves = len(existing["valve_gpios"])
+
+        # --- mode -------------------------------------------------------------
+        mode = data.get("mode", existing.get("mode", "sequence"))
+        if mode not in VALID_MODES:
+            return None, f"mode must be one of {VALID_MODES}"
 
         # --- valve_inverted --------------------------------------------------
         valve_inverted = bool(data.get("valve_inverted", existing.get("valve_inverted", True)))
@@ -129,8 +147,8 @@ def validate_config(data: dict) -> tuple[dict | None, str | None]:
                     return None, f"{name}[{i}].valve_index {vi} out of range 0-{n_valves-1}"
                 if state not in (0, 1):
                     return None, f"{name}[{i}].state must be 0 or 1"
-                if not (0 <= delay <= 30000):
-                    return None, f"{name}[{i}].delay_after_ms must be 0-30000"
+                if not (0 <= delay <= 300000):
+                    return None, f"{name}[{i}].delay_after_ms must be 0-300000"
                 result.append({"valve_index": vi, "state": state, "delay_after_ms": delay})
             return result, None
 
@@ -144,6 +162,34 @@ def validate_config(data: dict) -> tuple[dict | None, str | None]:
         if err:
             return None, err
 
+        # --- alternance -------------------------------------------------------
+        existing_alt = existing.get("alternance", {})
+        raw_alt = data.get("alternance", existing_alt)
+
+        raw_seq_a = raw_alt.get("sequence_a", existing_alt.get("sequence_a", []))
+        seq_a, err = _validate_sequence(raw_seq_a, "alternance.sequence_a")
+        if err:
+            return None, err
+
+        raw_seq_b = raw_alt.get("sequence_b", existing_alt.get("sequence_b", []))
+        seq_b, err = _validate_sequence(raw_seq_b, "alternance.sequence_b")
+        if err:
+            return None, err
+
+        delay_a = int(raw_alt.get("delay_a_to_b_ms", existing_alt.get("delay_a_to_b_ms", 5000)))
+        delay_b = int(raw_alt.get("delay_b_to_a_ms", existing_alt.get("delay_b_to_a_ms", 5000)))
+        if not (0 <= delay_a <= 300000):
+            return None, "alternance.delay_a_to_b_ms must be 0-300000"
+        if not (0 <= delay_b <= 300000):
+            return None, "alternance.delay_b_to_a_ms must be 0-300000"
+
+        alternance = {
+            "sequence_a": seq_a,
+            "sequence_b": seq_b,
+            "delay_a_to_b_ms": delay_a,
+            "delay_b_to_a_ms": delay_b,
+        }
+
         # --- valve_default_state -----------------------------------------------
         raw_defaults = data.get("valve_default_state", existing.get("valve_default_state", [0] * n_valves))
         if len(raw_defaults) != n_valves:
@@ -155,7 +201,19 @@ def validate_config(data: dict) -> tuple[dict | None, str | None]:
                 return None, f"valve_default_state[{i}] must be 0 or 1"
             valve_default_state.append(s)
 
+        # --- manual_states --------------------------------------------------------
+        raw_manual = data.get("manual_states", existing.get("manual_states", [0] * n_valves))
+        if len(raw_manual) != n_valves:
+            return None, f"manual_states must have {n_valves} entries (one per valve)"
+        manual_states = []
+        for i, v in enumerate(raw_manual):
+            s = int(v)
+            if s not in (0, 1):
+                return None, f"manual_states[{i}] must be 0 or 1"
+            manual_states.append(s)
+
         return {
+            "mode":              mode,
             "sensor_drive_gpio": existing["sensor_drive_gpio"],
             "sensor_read_gpio":  existing["sensor_read_gpio"],
             "valve_gpios":       existing["valve_gpios"],
@@ -167,6 +225,8 @@ def validate_config(data: dict) -> tuple[dict | None, str | None]:
             "dump_sequence":     dump_seq,
             "idle_sequence":     idle_seq,
             "valve_default_state": valve_default_state,
+            "manual_states":     manual_states,
+            "alternance":        alternance,
         }, None
 
     except (KeyError, TypeError, ValueError) as exc:
@@ -191,9 +251,6 @@ def get_config():
 
 @app.route("/api/config", methods=["POST"])
 def post_config():
-    if water_controller.is_running():
-        water_controller.stop()
-
     data = request.get_json(force=True, silent=True)
     if data is None:
         return jsonify({"error": "Invalid JSON body"}), 400
@@ -202,8 +259,42 @@ def post_config():
     if error:
         return jsonify({"error": error}), 422
 
+    # Stop the task unless we're staying in manual mode
+    if water_controller.is_running():
+        new_mode = config.get("mode", "sequence")
+        if not (water_controller.get_mode() == "manual" and new_mode == "manual"):
+            water_controller.stop()
+
     save_config(config)
     return jsonify({"ok": True, "config": config})
+
+
+@app.route("/api/manual-states", methods=["POST"])
+def post_manual_states():
+    """Save manual toggle states to config without stopping the task."""
+    data = request.get_json(force=True, silent=True)
+    if data is None:
+        return jsonify({"error": "Invalid JSON body"}), 400
+
+    raw = data.get("manual_states")
+    if not isinstance(raw, list):
+        return jsonify({"error": "manual_states must be a list"}), 422
+
+    config = load_config()
+    n_valves = len(config.get("valve_gpios", []))
+    if len(raw) != n_valves:
+        return jsonify({"error": f"manual_states must have {n_valves} entries"}), 422
+
+    manual_states = []
+    for i, v in enumerate(raw):
+        s = int(v)
+        if s not in (0, 1):
+            return jsonify({"error": f"manual_states[{i}] must be 0 or 1"}), 422
+        manual_states.append(s)
+
+    config["manual_states"] = manual_states
+    save_config(config)
+    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------------------
@@ -230,8 +321,69 @@ def task_stop():
 def task_status():
     return jsonify({
         "running": water_controller.is_running(),
+        "mode": water_controller.get_mode(),
         "gpio_states": water_controller.get_gpio_states(),
     })
+
+
+# ---------------------------------------------------------------------------
+# Routes — Manual valve control
+# ---------------------------------------------------------------------------
+@app.route("/api/gpio/set", methods=["POST"])
+def gpio_set():
+    """Set a single valve in manual mode.  Body: {valve_index: int, state: 0|1}"""
+    if not water_controller.is_running():
+        return jsonify({"error": "Task is not running"}), 409
+    if water_controller.get_mode() != "manual":
+        return jsonify({"error": "Manual valve control is only available in manual mode"}), 409
+
+    data = request.get_json(force=True, silent=True)
+    if data is None:
+        return jsonify({"error": "Invalid JSON body"}), 400
+
+    try:
+        vi = int(data["valve_index"])
+        state = int(data["state"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "Required: valve_index (int), state (0 or 1)"}), 422
+
+    cfg = load_config()
+    n_valves = len(cfg.get("valve_gpios", []))
+    if not (0 <= vi < n_valves):
+        return jsonify({"error": f"valve_index out of range 0-{n_valves - 1}"}), 422
+    if state not in (0, 1):
+        return jsonify({"error": "state must be 0 or 1"}), 422
+
+    water_controller.set_manual_valve(vi, state)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/gpio/set-sensor", methods=["POST"])
+def gpio_set_sensor():
+    """Set a sensor pin in manual mode.  Body: {pin: "drive"|"read", state: 0|1}"""
+    if not water_controller.is_running():
+        return jsonify({"error": "Task is not running"}), 409
+    if water_controller.get_mode() != "manual":
+        return jsonify({"error": "Sensor control is only available in manual mode"}), 409
+
+    data = request.get_json(force=True, silent=True)
+    if data is None:
+        return jsonify({"error": "Invalid JSON body"}), 400
+
+    pin_role = data.get("pin")
+    if pin_role not in ("drive", "read"):
+        return jsonify({"error": "pin must be 'drive' or 'read'"}), 422
+
+    try:
+        state = int(data["state"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "Required: state (0 or 1)"}), 422
+
+    if state not in (0, 1):
+        return jsonify({"error": "state must be 0 or 1"}), 422
+
+    water_controller.set_manual_sensor(pin_role, state)
+    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +397,14 @@ def gpio_stream():
     and a heartbeat every 5 s to keep the connection alive.
     """
     def event_generator():
-        last_states: dict = {}
+        # Always send current state immediately on connect
+        states = water_controller.get_gpio_states()
+        running = water_controller.is_running()
+        mode = water_controller.get_mode()
+        payload = {"running": running, "mode": mode, "gpio_states": states}
+        yield f"data: {json.dumps(payload)}\n\n"
+
+        last_states = dict(states)
         last_heartbeat = time.monotonic()
 
         while True:
@@ -253,7 +412,8 @@ def gpio_stream():
             running = water_controller.is_running()
             now = time.monotonic()
 
-            payload = {"running": running, "gpio_states": states}
+            mode = water_controller.get_mode()
+            payload = {"running": running, "mode": mode, "gpio_states": states}
 
             if states != last_states or now - last_heartbeat >= 5:
                 yield f"data: {json.dumps(payload)}\n\n"

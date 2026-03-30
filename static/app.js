@@ -7,12 +7,15 @@
 // ---------------------------------------------------------------------------
 let currentConfig = null;
 let sseSource = null;
+let currentMode = 'sequence';  // tracks the active mode from config
+let lastGpioStates = {};       // most recent gpio states from SSE/status
 
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', async () => {
   await loadConfig();
+  await refreshStatus();
   connectSSE();
 });
 
@@ -47,9 +50,26 @@ function renderConfigForm(cfg) {
   // Valve timings
   renderTimingTable(cfg);
 
-  // Sequences
+  // Default state table
+  renderDefaultStateTable(cfg);
+
+  // Mode selector
+  currentMode = cfg.mode ?? 'sequence';
+  selectMode(currentMode);
+
+  // Sequences (sequence mode)
   renderSequence('dump-seq', cfg.dump_sequence ?? [], cfg);
   renderSequence('idle-seq', cfg.idle_sequence ?? [], cfg);
+
+  // Alternance sequences
+  const alt = cfg.alternance ?? {};
+  renderSequence('alt-seq-a', alt.sequence_a ?? [], cfg);
+  renderSequence('alt-seq-b', alt.sequence_b ?? [], cfg);
+  document.getElementById('alt-delay-a').value = alt.delay_a_to_b_ms ?? 5000;
+  document.getElementById('alt-delay-b').value = alt.delay_b_to_a_ms ?? 5000;
+
+  // Manual mode toggles (use last known states so toggles match the monitor)
+  renderManualGrid(cfg, lastGpioStates);
 }
 
 function renderTimingTable(cfg) {
@@ -78,6 +98,36 @@ function renderTimingTable(cfg) {
         <label style="font-size:.7rem;color:var(--muted)">Close (ms)</label>
         <input type="number" class="timing-close" data-index="${i}"
                min="0" max="30000" step="50" value="${t.close_ms}" />
+      </div>
+    `;
+    container.appendChild(row);
+  });
+}
+
+function renderDefaultStateTable(cfg) {
+  const container = document.getElementById('default-state-table');
+  container.innerHTML = '';
+  const valves  = cfg.valve_gpios  ?? [];
+  const vlabels = cfg.valve_labels ?? [];
+  const defaults = cfg.valve_default_state ?? [];
+
+  valves.forEach((pin, i) => {
+    const ds   = defaults[i] ?? 0;
+    const name = vlabels[i] ?? `Valve ${i + 1}`;
+    const row  = document.createElement('div');
+    row.className = 'timing-row';
+    row.style.gridTemplateColumns = '1fr auto';
+    row.innerHTML = `
+      <div>
+        <div class="timing-label">${escapeHTML(name)}</div>
+        <div class="timing-sub">GPIO ${pin}</div>
+      </div>
+      <div>
+        <select class="default-state-select" data-index="${i}"
+                style="background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:.875rem;padding:6px 8px;outline:none">
+          <option value="0" ${ds === 0 ? 'selected' : ''}>Closed</option>
+          <option value="1" ${ds === 1 ? 'selected' : ''}>Open</option>
+        </select>
       </div>
     `;
     container.appendChild(row);
@@ -122,11 +172,11 @@ function appendStepRow(container, index, step, cfg) {
       </div>
       <div class="seq-field">
         <label>Delay after (ms)</label>
-        <input type="number" class="step-delay" min="0" max="30000" step="50"
+        <input type="number" class="step-delay" min="0" max="300000" step="50"
                value="${step.delay_after_ms ?? 0}" />
       </div>
     </div>
-    <button class="btn-icon" title="Remove step" onclick="removeStep(this)">✕</button>
+    <button class="btn-icon" title="Remove step" onclick="removeStep(this)">&#x2715;</button>
   `;
   container.appendChild(row);
 }
@@ -142,6 +192,195 @@ function makePinRow(role, pin, name) {
   return div;
 }
 
+// ---------------------------------------------------------------------------
+// Mode selector
+// ---------------------------------------------------------------------------
+function selectMode(mode) {
+  currentMode = mode;
+
+  // Tab highlight
+  document.querySelectorAll('.mode-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.mode === mode);
+  });
+
+  // Show/hide sections
+  ['sequence', 'alternance', 'manual'].forEach(m => {
+    const el = document.getElementById('mode-' + m);
+    if (el) el.classList.toggle('active', m === mode);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Manual mode
+// ---------------------------------------------------------------------------
+function renderManualGrid(cfg, states) {
+  const container = document.getElementById('manual-grid');
+  container.innerHTML = '';
+  const st = states ?? {};
+
+  // Sensor pins
+  const sensorLabel = cfg.sensor_label ?? 'Sensor';
+
+  // Sensor drive
+  const driveOn = st[`gpio_${cfg.sensor_drive_gpio}`] === 1;
+  const driveRow = document.createElement('div');
+  driveRow.className = 'manual-row';
+  driveRow.id = 'manual-sensor-drive';
+  driveRow.innerHTML = `
+    <div style="flex:1">
+      <div class="valve-name">${escapeHTML(sensorLabel)} (drive)</div>
+      <div class="valve-pin">GPIO ${cfg.sensor_drive_gpio}</div>
+    </div>
+    <span class="toggle-label ${driveOn ? 'on' : 'off'}" id="manual-label-sensor-drive">${driveOn ? 'ON' : 'OFF'}</span>
+    <label class="toggle">
+      <input type="checkbox" id="manual-toggle-sensor-drive" ${driveOn ? 'checked' : ''} onchange="manualSensorToggle('drive', this.checked)">
+      <span class="slider"></span>
+    </label>
+  `;
+  container.appendChild(driveRow);
+
+  // Sensor read
+  const readOn = st[`gpio_${cfg.sensor_read_gpio}`] === 1;
+  const readRow = document.createElement('div');
+  readRow.className = 'manual-row';
+  readRow.id = 'manual-sensor-read';
+  readRow.innerHTML = `
+    <div style="flex:1">
+      <div class="valve-name">${escapeHTML(sensorLabel)} (read)</div>
+      <div class="valve-pin">GPIO ${cfg.sensor_read_gpio}</div>
+    </div>
+    <span class="toggle-label ${readOn ? 'on' : 'off'}" id="manual-label-sensor-read">${readOn ? 'ON' : 'OFF'}</span>
+    <label class="toggle">
+      <input type="checkbox" id="manual-toggle-sensor-read" ${readOn ? 'checked' : ''} onchange="manualSensorToggle('read', this.checked)">
+      <span class="slider"></span>
+    </label>
+  `;
+  container.appendChild(readRow);
+
+  // Valve pins
+  const valves  = cfg.valve_gpios  ?? [];
+  const vlabels = cfg.valve_labels ?? [];
+  const manualSt = cfg.manual_states ?? [];
+
+  valves.forEach((pin, i) => {
+    const name = vlabels[i] ?? `Valve ${i + 1}`;
+    // Prefer saved manual_states when gpio state is unknown (task stopped)
+    const gpioVal = st[`gpio_${pin}`];
+    const isOn = gpioVal !== undefined ? gpioVal === 1 : (manualSt[i] === 1);
+    const row = document.createElement('div');
+    row.className = 'manual-row';
+    row.id = `manual-valve-${i}`;
+    row.innerHTML = `
+      <div style="flex:1">
+        <div class="valve-name">${escapeHTML(name)}</div>
+        <div class="valve-pin">GPIO ${pin}</div>
+      </div>
+      <span class="toggle-label ${isOn ? 'on' : 'off'}" id="manual-label-${i}">${isOn ? 'ON' : 'OFF'}</span>
+      <label class="toggle">
+        <input type="checkbox" id="manual-toggle-${i}" ${isOn ? 'checked' : ''} onchange="manualToggle(${i}, this.checked)">
+        <span class="slider"></span>
+      </label>
+    `;
+    container.appendChild(row);
+  });
+}
+
+async function manualToggle(valveIndex, checked) {
+  const state = checked ? 1 : 0;
+  const label = document.getElementById(`manual-label-${valveIndex}`);
+
+  // Always update the UI immediately
+  if (label) {
+    label.textContent = checked ? 'ON' : 'OFF';
+    label.className = `toggle-label ${checked ? 'on' : 'off'}`;
+  }
+
+  // Persist to config so it survives a reboot
+  saveManualStates();
+
+  // If the task is running in manual mode, also push to GPIO
+  try {
+    const res = await fetch('/api/gpio/set', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ valve_index: valveIndex, state }),
+    });
+    // Ignore 409 (task not running or not in manual mode) — that's fine
+    if (res.ok) {
+      await refreshStatus();
+    }
+  } catch (_) {}
+}
+
+async function manualSensorToggle(pinRole, checked) {
+  const state = checked ? 1 : 0;
+  const label = document.getElementById(`manual-label-sensor-${pinRole}`);
+
+  // Always update the UI immediately
+  if (label) {
+    label.textContent = checked ? 'ON' : 'OFF';
+    label.className = `toggle-label ${checked ? 'on' : 'off'}`;
+  }
+
+  // If the task is running in manual mode, also push to GPIO
+  try {
+    const res = await fetch('/api/gpio/set-sensor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: pinRole, state }),
+    });
+    if (res.ok) {
+      await refreshStatus();
+    }
+  } catch (_) {}
+}
+
+// Persist current manual toggle positions to config (no task restart)
+function saveManualStates() {
+  const nValves = currentConfig?.valve_gpios?.length ?? 0;
+  const states = [];
+  for (let i = 0; i < nValves; i++) {
+    const toggle = document.getElementById(`manual-toggle-${i}`);
+    states.push(toggle ? (toggle.checked ? 1 : 0) : 0);
+  }
+  fetch('/api/manual-states', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ manual_states: states }),
+  }).catch(() => {});
+}
+
+// Update manual toggles from SSE state
+function updateManualToggles(cfg, states) {
+  if (!cfg) return;
+
+  // Sensor toggles
+  _syncToggle('manual-toggle-sensor-drive', 'manual-label-sensor-drive', states[`gpio_${cfg.sensor_drive_gpio}`]);
+  _syncToggle('manual-toggle-sensor-read',  'manual-label-sensor-read',  states[`gpio_${cfg.sensor_read_gpio}`]);
+
+  // Valve toggles
+  const valves = cfg.valve_gpios ?? [];
+  valves.forEach((pin, i) => {
+    _syncToggle(`manual-toggle-${i}`, `manual-label-${i}`, states[`gpio_${pin}`]);
+  });
+}
+
+function _syncToggle(toggleId, labelId, val) {
+  const toggle = document.getElementById(toggleId);
+  const label  = document.getElementById(labelId);
+  if (!toggle) return;
+
+  const isOn = val === 1;
+  toggle.checked = isOn;
+  if (label) {
+    label.textContent = isOn ? 'ON' : 'OFF';
+    label.className = `toggle-label ${isOn ? 'on' : 'off'}`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Save / read config
+// ---------------------------------------------------------------------------
 async function saveConfig() {
   const cfg = readFormConfig();
   if (!cfg) return;
@@ -159,7 +398,7 @@ async function saveConfig() {
     }
     currentConfig = data.config;
     renderConfigForm(currentConfig);
-    renderGpioGrid(currentConfig, {});
+    await refreshStatus();
     showFeedback('ok', 'Configuration saved.');
   } catch (e) {
     showFeedback('error', 'Network error: ' + e.message);
@@ -180,6 +419,12 @@ function readFormConfig() {
     });
   });
 
+  // Default state
+  const valve_default_state = [];
+  document.querySelectorAll('.default-state-select').forEach(el => {
+    valve_default_state.push(parseInt(el.value, 10));
+  });
+
   // Helper: read a sequence from a container
   function readSequence(containerId) {
     const steps = [];
@@ -193,12 +438,32 @@ function readFormConfig() {
     return steps;
   }
 
+  // Alternance
+  const alternance = {
+    sequence_a:      readSequence('alt-seq-a'),
+    sequence_b:      readSequence('alt-seq-b'),
+    delay_a_to_b_ms: parseInt(document.getElementById('alt-delay-a').value, 10) || 5000,
+    delay_b_to_a_ms: parseInt(document.getElementById('alt-delay-b').value, 10) || 5000,
+  };
+
+  // Manual toggle states
+  const manual_states = [];
+  const nValves = currentConfig?.valve_gpios?.length ?? 0;
+  for (let i = 0; i < nValves; i++) {
+    const toggle = document.getElementById(`manual-toggle-${i}`);
+    manual_states.push(toggle ? (toggle.checked ? 1 : 0) : 0);
+  }
+
   return {
+    mode: currentMode,
     poll_interval_ms: interval,
     valve_inverted,
     valve_timings,
+    valve_default_state,
+    manual_states,
     dump_sequence: readSequence('dump-seq'),
     idle_sequence: readSequence('idle-seq'),
+    alternance,
   };
 }
 
@@ -232,7 +497,35 @@ async function taskAction(action) {
     if (!res.ok) {
       alert(data.error ?? `${action} failed`);
     }
-    // SSE will update the status shortly; force a quick poll too
+
+    // In manual mode on start, push the current toggle states to the backend
+    // so the GPIOs match what the UI shows.
+    if (action === 'start' && currentMode === 'manual' && currentConfig) {
+      // Sensor toggles
+      for (const role of ['drive', 'read']) {
+        const toggle = document.getElementById(`manual-toggle-sensor-${role}`);
+        if (toggle) {
+          await fetch('/api/gpio/set-sensor', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pin: role, state: toggle.checked ? 1 : 0 }),
+          });
+        }
+      }
+      // Valve toggles
+      const valves = currentConfig.valve_gpios ?? [];
+      for (let i = 0; i < valves.length; i++) {
+        const toggle = document.getElementById(`manual-toggle-${i}`);
+        if (toggle) {
+          await fetch('/api/gpio/set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ valve_index: i, state: toggle.checked ? 1 : 0 }),
+          });
+        }
+      }
+    }
+
     await refreshStatus();
   } catch (e) {
     alert('Network error: ' + e.message);
@@ -243,11 +536,11 @@ async function refreshStatus() {
   try {
     const res  = await fetch('/api/task/status');
     const data = await res.json();
-    applyStatus(data.running, data.gpio_states);
+    applyStatus(data.running, data.gpio_states, data.mode);
   } catch (_) {}
 }
 
-function applyStatus(running, gpioStates) {
+function applyStatus(running, gpioStates, mode) {
   const badge = document.getElementById('task-badge');
   const dot   = document.getElementById('task-dot');
   const label = document.getElementById('task-label');
@@ -268,9 +561,24 @@ function applyStatus(running, gpioStates) {
     btnStop.disabled  = true;
   }
 
+  // Mode badge
+  const modeBadge = document.getElementById('mode-badge');
+  if (modeBadge) {
+    const m = mode ?? currentMode;
+    modeBadge.dataset.mode = m;
+    modeBadge.textContent = m.charAt(0).toUpperCase() + m.slice(1);
+  }
+
+  if (gpioStates) lastGpioStates = gpioStates;
+
   if (currentConfig) {
     renderGpioGrid(currentConfig, gpioStates ?? {});
     updateDiagram(currentConfig, gpioStates ?? {}, running);
+    // Only sync manual toggles from GPIO when the task is running in manual
+    // mode — otherwise preserve the user's toggle choices.
+    if (running && currentMode === 'manual') {
+      updateManualToggles(currentConfig, gpioStates ?? {});
+    }
   }
 }
 
@@ -353,7 +661,7 @@ function connectSSE() {
   sseSource.onmessage = (evt) => {
     try {
       const data = JSON.parse(evt.data);
-      applyStatus(data.running, data.gpio_states);
+      applyStatus(data.running, data.gpio_states, data.mode);
 
       // Granular pin updates (avoid full re-render on every tick)
       const states = data.gpio_states ?? {};
@@ -395,26 +703,22 @@ function updateDiagram(cfg, states, running) {
   const valveLabels   = cfg.valve_labels ?? [];
 
   // ── Sensor ───────────────────────────────────────────────────────────────
-  // Circuit closed (HIGH) = sap at top = dump about to start
-  // Circuit open  (LOW)   = water dropped to bottom = draining
   const sensorVal     = states[`gpio_${sensorReadPin}`];
   const circuitClosed = sensorVal === 1;  // water at top
   _diagClass('d-sensor-top', circuitClosed ? 'on' : '');
   _diagClass('d-label-sensor-top', circuitClosed ? 'on' : '');
-  _diagClass('d-sensor-bot', !circuitClosed && running ? 'on' : '');  // low = sap drained past bottom sensor
+  _diagClass('d-sensor-bot', !circuitClosed && running ? 'on' : '');
   _diagClass('d-label-sensor-bot', !circuitClosed && running ? 'on' : '');
 
-  // Water level animation:
-  //   topTriggered = circuit closed = sap reached top sensor = tank full, dump starting
-  //   IDLE + running = sap is draining / tank is low
+  // Water level animation
   const topTriggered = circuitClosed;
 
   const waterEl = document.getElementById('d-water');
   if (waterEl) {
     let waterY, waterH;
     if (!running)         { waterY = 288; waterH = 10;  }  // stopped — empty
-    else if (topTriggered){ waterY = 84;  waterH = 214; }  // top sensor on — tank full, dumping
-    else                  { waterY = 260; waterH = 38;  }  // idle/waiting — tank low
+    else if (topTriggered){ waterY = 84;  waterH = 214; }  // top sensor on — tank full
+    else                  { waterY = 260; waterH = 38;  }  // idle — tank low
     waterEl.setAttribute('y', waterY);
     waterEl.setAttribute('height', waterH);
   }
@@ -425,23 +729,21 @@ function updateDiagram(cfg, states, running) {
     const val   = states[`gpio_${pin}`];
     const isOn  = val === 1;
 
-    // Find matching diagram entry — "pump" substring must not match "water pump valve"
+    // Find matching diagram entry
     const entry = VALVE_DIAGRAM_MAP.find(e => {
-      if (e.match === 'pump')       return label === 'water pump';                        // exact relay label
-      if (e.match === 'water pump') return label.includes('water pump') && label !== 'water pump'; // valve only
+      if (e.match === 'pump')       return label === 'water pump';
+      if (e.match === 'water pump') return label.includes('water pump') && label !== 'water pump';
       return label.includes(e.match);
     });
     if (!entry) return;
 
     if (entry.pump) {
-      // Pump relay
       _diagClass(entry.pump,  isOn ? 'active' : '');
       _diagClass(entry.label, isOn ? 'pump-active' : '');
       _diagClass(entry.pipe,  isOn ? 'active' : '');
       const icon = document.getElementById(entry.icon);
       if (icon) icon.style.fill = isOn ? '#22c55e' : '#475569';
     } else {
-      // Regular valve
       _diagClass(entry.valve, isOn ? 'open' : (val === 0 ? 'closed' : ''));
       _diagClass(entry.label, isOn ? 'open' : (val === 0 ? 'closed' : ''));
       _diagClass(entry.pipe,  isOn ? 'active' : '');
@@ -487,4 +789,3 @@ function escapeHTML(str) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
-
