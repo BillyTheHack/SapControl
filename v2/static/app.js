@@ -769,9 +769,8 @@ function updateHoldBar(total, remaining, phase) {
   const pct = Math.min(100, (elapsed / total) * 100);
   fill.style.width = pct + '%';
 
-  // Extract sequence name from phase (remove " (hold)" suffix)
-  const seqName = (phase ?? 'Hold').replace(/ \(hold\)$/, '');
-  labelEl.textContent = `${seqName} — min run`;
+  const seqName = (phase ?? '').replace(/ \(hold\)$/, '');
+  labelEl.textContent = seqName;
   timeEl.textContent = `${Math.ceil(remaining)}s / ${Math.round(total)}s`;
 }
 
