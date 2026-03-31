@@ -40,7 +40,8 @@ class BaseModeRunner(ABC):
         """Read sensor pin, respecting overrides."""
         return self.controller.read_sensor(self.sensor_read)
 
-    def execute_sequence(self, steps: list[dict], abort_on_sensor: int | None = None) -> bool:
+    def execute_sequence(self, steps: list[dict], abort_on_sensor: int | None = None,
+                         hold_info: tuple[float, float] | None = None) -> bool:
         """Execute an ordered list of valve actions.
 
         Each step: {"valve_index": int, "state": 0|1, "delay_after_ms": int}
@@ -51,6 +52,8 @@ class BaseModeRunner(ABC):
         Args:
             steps: List of step dicts.
             abort_on_sensor: If set, abort if sensor reads this value mid-sequence.
+            hold_info: Optional (bar_total, bar_end_time) to update hold progress
+                       bar during sequence execution.
 
         Returns True if interrupted by sensor change, False otherwise.
         """
@@ -68,17 +71,22 @@ class BaseModeRunner(ABC):
             # Write only if the pin is not overridden
             self.controller.write_pin_if_not_overridden(pin, logical, self.inverted)
 
+            # Update hold bar during step execution
+            if hold_info:
+                bar_total, bar_end = hold_info
+                self.controller.set_hold(bar_total, max(0, bar_end - time.monotonic()))
+
             # Wait for physical actuation
             timing = self.timings[vi] if vi < len(self.timings) else {}
             actuation_ms = timing.get("open_ms", 0) if logical == 1 else timing.get("close_ms", 0)
             if actuation_ms > 0:
-                if self._interruptible_sleep_ms(actuation_ms, abort_on_sensor):
+                if self._interruptible_sleep_ms(actuation_ms, abort_on_sensor, hold_info):
                     return True
 
             # Inter-step delay
             delay_ms = step.get("delay_after_ms", 0)
             if delay_ms > 0:
-                if self._interruptible_sleep_ms(delay_ms, abort_on_sensor):
+                if self._interruptible_sleep_ms(delay_ms, abort_on_sensor, hold_info):
                     return True
 
         # Final check
@@ -105,7 +113,8 @@ class BaseModeRunner(ABC):
             updates[f"gpio_{pin}"] = GpioDriver.valve_level(raw, self.inverted)
         self.controller.set_gpio_states_bulk(updates)
 
-    def _interruptible_sleep_ms(self, ms: float, abort_on_sensor: int | None = None) -> bool:
+    def _interruptible_sleep_ms(self, ms: float, abort_on_sensor: int | None = None,
+                               hold_info: tuple[float, float] | None = None) -> bool:
         """Sleep in 20ms increments, checking for stop and sensor.
         Returns True if interrupted by sensor change.
         """
@@ -115,6 +124,9 @@ class BaseModeRunner(ABC):
                 return False
             if abort_on_sensor is not None and self.read_sensor() == abort_on_sensor:
                 return True
+            if hold_info:
+                bar_total, bar_end = hold_info
+                self.controller.set_hold(bar_total, max(0, bar_end - time.monotonic()))
             remaining = end - time.monotonic()
             if remaining > 0:
                 self.controller.interruptible_sleep(min(0.02, remaining))

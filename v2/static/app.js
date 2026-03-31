@@ -154,6 +154,7 @@ function renderNamedSequenceSection(containerId, key, seqObj, c, hint) {
   const name = seqObj.name ?? key;
   const steps = seqObj.steps ?? [];
   const minRun = seqObj.min_run_seconds ?? 0;
+  const minRunExtra = seqObj.min_run_extra ?? true;
 
   container.innerHTML = `
     <div style="margin-bottom:8px">
@@ -165,7 +166,14 @@ function renderNamedSequenceSection(containerId, key, seqObj, c, hint) {
       <label for="min-run-${key}">Minimum run time (seconds)</label>
       <input type="number" id="min-run-${key}" class="seq-min-run" data-key="${key}"
              min="0" max="3600" step="1" value="${minRun}" />
-      <p class="pin-hint">Sensor changes are ignored until this time has elapsed after the sequence starts. 0 = no minimum.</p>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+        <input type="checkbox" id="min-run-extra-${key}" ${minRunExtra ? 'checked' : ''}
+               style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent)" />
+        <label for="min-run-extra-${key}" style="cursor:pointer;color:var(--text);font-weight:500">
+          Add hold time after sequence delays
+        </label>
+      </div>
+      <p class="pin-hint">When checked, the hold timer starts after the sequence finishes (delays + steps). When unchecked, it starts when the sequence begins (delays count against the hold time).</p>
     </div>
     <div id="seq-steps-${key}" class="seq-block"></div>
     <button class="btn-add-step" onclick="addStep('seq-steps-${key}')">+ Add step</button>
@@ -336,9 +344,11 @@ function readFormConfig() {
   function readNamedSequence(key) {
     const nameInput = document.querySelector(`.seq-name-input[data-key="${key}"]`);
     const minRunInput = document.getElementById(`min-run-${key}`);
+    const minRunExtraInput = document.getElementById(`min-run-extra-${key}`);
     return {
       name: nameInput?.value?.trim() || key,
       min_run_seconds: parseInt(minRunInput?.value, 10) || 0,
+      min_run_extra: minRunExtraInput?.checked ?? true,
       steps: readSteps(`seq-steps-${key}`),
     };
   }

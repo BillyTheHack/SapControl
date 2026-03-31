@@ -273,7 +273,9 @@ def _validate_named_sequence(data: dict, n_valves: int, path: str) -> tuple[dict
     if not 0 <= min_run <= 3600:
         return None, f"{path}.min_run_seconds must be 0-3600"
 
-    return {"name": name, "steps": steps, "min_run_seconds": min_run}, None
+    min_run_extra = bool(data.get("min_run_extra", True))
+
+    return {"name": name, "steps": steps, "min_run_seconds": min_run, "min_run_extra": min_run_extra}, None
 
 
 def _validate_state_list(raw: list, n_valves: int, path: str) -> tuple[list | None, str | None]:
