@@ -80,7 +80,8 @@
             "state": 1,
             "delay_after_ms": 0
           }
-        ]
+        ],
+        "min_run_seconds": 0
       },
       "on_sensor_low": {
         "name": "Remplissage",
@@ -110,7 +111,8 @@
             "state": 1,
             "delay_after_ms": 0
           }
-        ]
+        ],
+        "min_run_seconds": 10
       }
     },
     "alternance": {
@@ -129,6 +131,7 @@
               "delay_after_ms": 0
             }
           ],
+          "min_run_seconds": 0,
           "delay_after_ms": 5000
         },
         {
@@ -145,6 +148,7 @@
               "delay_after_ms": 0
             }
           ],
+          "min_run_seconds": 0,
           "delay_after_ms": 5000
         }
       ]

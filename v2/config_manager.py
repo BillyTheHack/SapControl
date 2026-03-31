@@ -256,7 +256,7 @@ def _validate_steps(steps: list, n_valves: int, path: str) -> tuple[list | None,
 
 
 def _validate_named_sequence(data: dict, n_valves: int, path: str) -> tuple[dict | None, str | None]:
-    """Validate a named sequence object {name, steps, ...}."""
+    """Validate a named sequence object {name, steps, min_run_seconds, ...}."""
     if not isinstance(data, dict):
         return None, f"{path} must be an object"
     name = str(data.get("name", "")).strip()
@@ -269,7 +269,11 @@ def _validate_named_sequence(data: dict, n_valves: int, path: str) -> tuple[dict
     if err:
         return None, err
 
-    return {"name": name, "steps": steps}, None
+    min_run = int(data.get("min_run_seconds", 0))
+    if not 0 <= min_run <= 3600:
+        return None, f"{path}.min_run_seconds must be 0-3600"
+
+    return {"name": name, "steps": steps, "min_run_seconds": min_run}, None
 
 
 def _validate_state_list(raw: list, n_valves: int, path: str) -> tuple[list | None, str | None]:

@@ -154,12 +154,19 @@ function renderNamedSequenceSection(containerId, key, seqObj, c, hint) {
   const container = document.getElementById(containerId);
   const name = seqObj.name ?? key;
   const steps = seqObj.steps ?? [];
+  const minRun = seqObj.min_run_seconds ?? 0;
 
   container.innerHTML = `
     <div style="margin-bottom:8px">
       <label style="display:block;margin-bottom:4px">Sequence name</label>
       <input type="text" class="seq-name-input" data-key="${key}" value="${esc(name)}" maxlength="60" />
       <p class="pin-hint">${esc(hint)}</p>
+    </div>
+    <div class="form-row" style="margin-bottom:8px">
+      <label for="min-run-${key}">Minimum run time (seconds)</label>
+      <input type="number" id="min-run-${key}" class="seq-min-run" data-key="${key}"
+             min="0" max="3600" step="1" value="${minRun}" />
+      <p class="pin-hint">Sensor changes are ignored until this time has elapsed after the sequence starts. 0 = no minimum.</p>
     </div>
     <div id="seq-steps-${key}" class="seq-block"></div>
     <button class="btn-add-step" onclick="addStep('seq-steps-${key}')">+ Add step</button>
@@ -329,8 +336,10 @@ function readFormConfig() {
 
   function readNamedSequence(key) {
     const nameInput = document.querySelector(`.seq-name-input[data-key="${key}"]`);
+    const minRunInput = document.getElementById(`min-run-${key}`);
     return {
       name: nameInput?.value?.trim() || key,
+      min_run_seconds: parseInt(minRunInput?.value, 10) || 0,
       steps: readSteps(`seq-steps-${key}`),
     };
   }
