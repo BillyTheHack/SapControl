@@ -34,6 +34,8 @@ class Controller:
         self._mode: str = "sequence"
         self._phase: str | None = None
         self._gpio_states: dict[str, int] = {}
+        self._hold_total: float = 0.0      # min_run hold duration in seconds
+        self._hold_remaining: float = 0.0  # seconds left in current hold
 
         # Per-pin override: set of GPIO pin numbers currently locked
         self._overridden_pins: set[int] = set()
@@ -79,13 +81,17 @@ class Controller:
     def get_status(self) -> dict:
         """Return a complete status snapshot for SSE."""
         with self._lock:
-            return {
+            status = {
                 "running": self._running,
                 "mode": self._mode,
                 "phase": self._phase,
                 "overridden_pins": sorted(self._overridden_pins),
                 "gpio_states": dict(self._gpio_states),
             }
+            if self._hold_total > 0:
+                status["hold_total"] = round(self._hold_total, 1)
+                status["hold_remaining"] = round(max(0, self._hold_remaining), 1)
+            return status
 
     @property
     def gpio(self) -> GpioDriver:
@@ -97,6 +103,18 @@ class Controller:
     def set_phase(self, phase: str | None) -> None:
         with self._lock:
             self._phase = phase
+
+    def set_hold(self, total: float, remaining: float) -> None:
+        """Update the min-run hold progress (seconds)."""
+        with self._lock:
+            self._hold_total = total
+            self._hold_remaining = remaining
+
+    def clear_hold(self) -> None:
+        """Clear the hold indicator."""
+        with self._lock:
+            self._hold_total = 0.0
+            self._hold_remaining = 0.0
 
     def set_gpio_state(self, pin: int, logical_value: int) -> None:
         """Update the tracked GPIO state for a single pin."""
@@ -120,6 +138,8 @@ class Controller:
             self._running = True
             self._mode = config.get("mode", "sequence")
             self._phase = None
+            self._hold_total = 0.0
+            self._hold_remaining = 0.0
             self._overridden_pins.clear()
             self._stop_event.clear()
 
@@ -284,6 +304,8 @@ class Controller:
                     self._gpio_states[f"gpio_{pin}"] = ds
                 self._running = False
                 self._phase = None
+                self._hold_total = 0.0
+                self._hold_remaining = 0.0
                 self._overridden_pins.clear()
 
             logger.info("Background task stopped, GPIO cleaned up")

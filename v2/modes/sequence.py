@@ -57,13 +57,14 @@ class SequenceModeRunner(BaseModeRunner):
                         self.controller.interruptible_sleep(self.interval)
                         continue
 
+                    skip_hold = first_loop
                     first_loop = False
                     seq_start = time.monotonic()
                     logger.info("Sensor HIGH — running '%s'", high_name)
                     self.controller.set_phase(high_name)
 
                     # Only allow mid-sequence abort if no min_run or already past it
-                    abort_val = 0 if high_min_run == 0 else None
+                    abort_val = 0 if (high_min_run == 0 or skip_hold) else None
                     interrupted = self.execute_sequence(high_steps, abort_on_sensor=abort_val)
                     self.update_shared_state()
 
@@ -73,19 +74,20 @@ class SequenceModeRunner(BaseModeRunner):
                         self.execute_sequence(low_steps, abort_on_sensor=1)
                         self.update_shared_state()
                         state = _IDLE
-                        hold_until = seq_start + low_min_run
+                        hold_until = seq_start + low_min_run if not skip_hold else 0
                         self.controller.set_phase(None)
                         logger.info("State → IDLE (interrupted)")
                     else:
                         state = _ACTIVE
-                        hold_until = seq_start + high_min_run
-                        if high_min_run > 0:
+                        if not skip_hold and high_min_run > 0:
+                            hold_until = seq_start + high_min_run
                             remaining = hold_until - time.monotonic()
                             if remaining > 0:
                                 logger.info("'%s' hold: %.1fs remaining", high_name, remaining)
                                 self.controller.set_phase(f"{high_name} (hold)")
-                                self._hold_wait(remaining)
+                                self._hold_wait(high_min_run, remaining)
                         self.controller.set_phase(None)
+                        self.controller.clear_hold()
                         logger.info("State → ACTIVE")
 
             elif state == _ACTIVE:
@@ -119,19 +121,21 @@ class SequenceModeRunner(BaseModeRunner):
                             if remaining > 0:
                                 logger.info("'%s' hold: %.1fs remaining", low_name, remaining)
                                 self.controller.set_phase(f"{low_name} (hold)")
-                                self._hold_wait(remaining)
+                                self._hold_wait(low_min_run, remaining)
                         self.controller.set_phase(None)
+                        self.controller.clear_hold()
                         logger.info("State → IDLE")
 
             self.controller.interruptible_sleep(self.interval)
 
-    def _hold_wait(self, seconds: float) -> None:
-        """Wait for the hold period, updating shared state periodically."""
-        end = time.monotonic() + seconds
+    def _hold_wait(self, total: float, remaining: float) -> None:
+        """Wait for the hold period, pushing progress to the controller."""
+        end = time.monotonic() + remaining
         while time.monotonic() < end:
             if self.controller.should_stop():
                 return
+            left = max(0, end - time.monotonic())
+            self.controller.set_hold(total, left)
             self.update_shared_state()
-            remaining = end - time.monotonic()
-            if remaining > 0:
-                self.controller.interruptible_sleep(min(0.5, remaining))
+            if left > 0:
+                self.controller.interruptible_sleep(min(0.2, left))

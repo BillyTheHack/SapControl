@@ -9,7 +9,6 @@ let cfg = null;           // current config from server
 let sseSource = null;
 let currentMode = 'sequence';
 let lastStatus = {};      // previous SSE payload for diff
-let gpioGridRendered = false;
 
 // =========================================================================
 // Init
@@ -643,76 +642,13 @@ function applyStatus(data) {
     overrideControls.dataset.rendered = '';
   }
 
-  // GPIO grid — render once, then diff-update
-  if (!gpioGridRendered && cfg) {
-    renderGpioGrid(cfg, states);
-    gpioGridRendered = true;
-  } else {
-    const prev = lastStatus.gpio_states ?? {};
-    for (const [key, val] of Object.entries(states)) {
-      if (prev[key] !== val) {
-        const pin = parseInt(key.replace('gpio_', ''), 10);
-        updateGpioItem(pin, val);
-      }
-    }
-  }
-
   // Diagram
   if (cfg) updateDiagram(cfg, states, running, phase);
 
+  // Hold progress bar
+  updateHoldBar(data.hold_total, data.hold_remaining, phase);
+
   lastStatus = data;
-}
-
-// =========================================================================
-// GPIO grid
-// =========================================================================
-function renderGpioGrid(c, states) {
-  const grid = document.getElementById('gpio-grid');
-  grid.innerHTML = '';
-  const sensor = c.hardware?.sensor ?? {};
-  grid.appendChild(makeGpioItem('Sensor (drive)', sensor.label ?? 'Sensor',
-    sensor.drive_gpio, states[`gpio_${sensor.drive_gpio}`]));
-  grid.appendChild(makeGpioItem('Sensor (read)', sensor.label ?? 'Sensor',
-    sensor.read_gpio, states[`gpio_${sensor.read_gpio}`]));
-  const valves = c.hardware?.valves ?? [];
-  valves.forEach(v => {
-    grid.appendChild(makeGpioItem('Valve', v.label, v.gpio, states[`gpio_${v.gpio}`]));
-  });
-}
-
-function makeGpioItem(role, label, pin, value) {
-  const div = document.createElement('div');
-  div.className = 'gpio-item';
-  div.id = `gpio-item-${pin}`;
-  let stateClass, stateText;
-  if (value === undefined || value === null) {
-    stateClass = 'state-unknown'; stateText = 'Unknown';
-  } else if (value === 1) {
-    stateClass = 'state-high'; stateText = 'HIGH';
-  } else {
-    stateClass = 'state-low'; stateText = 'LOW';
-  }
-  div.innerHTML = `
-    <span class="gpio-role">${esc(role)}</span>
-    <span class="gpio-label">${esc(label)}</span>
-    <span class="gpio-pin">GPIO ${pin} (BCM)</span>
-    <span class="gpio-state ${stateClass}">${stateText}</span>
-  `;
-  return div;
-}
-
-function updateGpioItem(pin, value) {
-  const item = document.getElementById(`gpio-item-${pin}`);
-  if (!item) return;
-  const stateEl = item.querySelector('.gpio-state');
-  if (!stateEl) return;
-  if (value === 1) {
-    stateEl.className = 'gpio-state state-high';
-    stateEl.textContent = 'HIGH';
-  } else {
-    stateEl.className = 'gpio-state state-low';
-    stateEl.textContent = 'LOW';
-  }
 }
 
 // =========================================================================
@@ -775,13 +711,13 @@ function updateDiagram(c, states, running, phase) {
   if (phaseEl) {
     if (!running) {
       phaseEl.textContent = 'Stopped';
-      phaseEl.className = 'idle';
+      phaseEl.setAttribute('class', 'idle');
     } else if (phase) {
       phaseEl.textContent = phase + '…';
-      phaseEl.className = 'active';
+      phaseEl.setAttribute('class', 'active');
     } else {
       phaseEl.textContent = 'Waiting';
-      phaseEl.className = 'idle';
+      phaseEl.setAttribute('class', 'idle');
     }
   }
 }
@@ -791,6 +727,28 @@ function diagClass(id, cls) {
   if (!el) return;
   el.classList.remove('open', 'closed', 'active', 'on', 'pump-active');
   if (cls) el.classList.add(cls);
+}
+
+function updateHoldBar(total, remaining, phase) {
+  const bar = document.getElementById('hold-bar');
+  const fill = document.getElementById('hold-fill');
+  const labelEl = document.getElementById('hold-label');
+  const timeEl = document.getElementById('hold-time');
+
+  if (!total || total <= 0 || remaining === undefined) {
+    bar.classList.remove('active');
+    return;
+  }
+
+  bar.classList.add('active');
+  const elapsed = total - remaining;
+  const pct = Math.min(100, (elapsed / total) * 100);
+  fill.style.width = pct + '%';
+
+  // Extract sequence name from phase (remove " (hold)" suffix)
+  const seqName = (phase ?? 'Hold').replace(/ \(hold\)$/, '');
+  labelEl.textContent = `${seqName} — min run`;
+  timeEl.textContent = `${Math.ceil(remaining)}s / ${Math.round(total)}s`;
 }
 
 // =========================================================================

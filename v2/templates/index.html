@@ -140,27 +140,6 @@
     #override-controls.active { display: block; }
     .override-grid { display: flex; flex-direction: column; gap: 8px; }
 
-    /* GPIO monitor */
-    .gpio-grid { display: flex; flex-direction: column; gap: 6px; }
-    .gpio-item {
-      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-      padding: 8px 12px; display: grid;
-      grid-template-columns: 1fr auto; grid-template-rows: auto auto;
-      column-gap: 10px; row-gap: 1px; align-items: center;
-    }
-    .gpio-role  { font-size: .68rem; font-weight: 700; text-transform: uppercase;
-                  letter-spacing: .07em; color: var(--muted); grid-column: 1; }
-    .gpio-label { font-size: .9rem; font-weight: 600; grid-column: 1; }
-    .gpio-pin   { font-size: .75rem; color: var(--muted); grid-column: 1; }
-    .gpio-state {
-      font-size: .78rem; font-weight: 700; padding: 3px 10px; border-radius: 5px;
-      display: inline-block; width: fit-content;
-      grid-column: 2; grid-row: 1 / 4; align-self: center; white-space: nowrap;
-    }
-    .state-high    { background: #14532d55; color: var(--green); border: 1px solid #166534; }
-    .state-low     { background: #1e293b;   color: var(--muted); border: 1px solid var(--border); }
-    .state-unknown { background: #1e293b;   color: var(--muted); border: 1px solid var(--border); }
-
     /* Config form */
     .form-grid { display: grid; gap: 16px; }
     .form-row  { display: grid; gap: 6px; }
@@ -271,9 +250,6 @@
     }
     .btn-remove-seq:hover { color: var(--red); border-color: var(--red); }
 
-    /* Connection indicator */
-    #conn-indicator { font-size: .75rem; color: var(--muted); text-align: right; }
-
     /* System diagram */
     #diagram-wrap { width: 100%; }
     #system-diagram { display: block; width: 100%; height: auto; }
@@ -302,6 +278,24 @@
     }
     #d-phase.active { fill: #3b82f6; }
     #d-phase.idle   { fill: #475569; }
+
+    /* Hold progress bar */
+    .hold-bar {
+      display: none; margin-top: 10px; padding: 0 8px;
+    }
+    .hold-bar.active { display: block; }
+    .hold-bar-label {
+      font-size: .75rem; font-weight: 600; color: var(--yellow);
+      margin-bottom: 4px; display: flex; justify-content: space-between;
+    }
+    .hold-bar-track {
+      width: 100%; height: 6px; background: #1e293b;
+      border-radius: 3px; overflow: hidden;
+    }
+    .hold-bar-fill {
+      height: 100%; background: var(--yellow); border-radius: 3px;
+      transition: width .3s linear;
+    }
   </style>
 </head>
 <body>
@@ -322,6 +316,7 @@
       </span>
       <span id="mode-badge" class="mode-badge" data-mode="sequence">Sequence</span>
       <span id="override-badge" class="override-badge">Override</span>
+      <span id="conn-indicator" style="font-size:.72rem;color:var(--muted)">Connecting…</span>
       <div class="btn-row">
         <button id="btn-start" class="btn btn-start" onclick="taskAction('start')">Start</button>
         <button id="btn-stop"  class="btn btn-stop"  onclick="taskAction('stop')" disabled>Stop</button>
@@ -338,15 +333,6 @@
     </p>
     <div id="override-grid" class="override-grid"></div>
     <button class="btn-clear-overrides" onclick="clearAllOverrides()">Release all overrides</button>
-  </div>
-
-  <!-- GPIO monitor -->
-  <div class="card">
-    <h2>GPIO Monitor</h2>
-    <div id="gpio-grid" class="gpio-grid">
-      <p style="color:var(--muted);font-size:.85rem">Loading GPIO state…</p>
-    </div>
-    <p id="conn-indicator">Connecting…</p>
   </div>
 
   <!-- System diagram -->
@@ -390,6 +376,15 @@
 
         <text id="d-phase" x="270" y="22">&mdash;</text>
       </svg>
+    </div>
+    <div id="hold-bar" class="hold-bar">
+      <div class="hold-bar-label">
+        <span id="hold-label">Hold</span>
+        <span id="hold-time"></span>
+      </div>
+      <div class="hold-bar-track">
+        <div id="hold-fill" class="hold-bar-fill" style="width:0%"></div>
+      </div>
     </div>
   </div>
 
