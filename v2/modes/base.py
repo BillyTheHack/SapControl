@@ -1,8 +1,13 @@
 """
 modes/base.py — Abstract base class for mode runners.
+
+Mode runners use controller.write_pin_if_not_overridden() for valve writes
+and controller.read_sensor() for sensor reads, so overridden pins are
+automatically respected without any mode-specific override logic.
 """
 
 import logging
+import time
 from abc import ABC, abstractmethod
 
 from gpio_driver import GpioDriver
@@ -31,10 +36,17 @@ class BaseModeRunner(ABC):
         """Main loop — called by controller._run() in background thread."""
         ...
 
+    def read_sensor(self) -> int:
+        """Read sensor pin, respecting overrides."""
+        return self.controller.read_sensor(self.sensor_read)
+
     def execute_sequence(self, steps: list[dict], abort_on_sensor: int | None = None) -> bool:
         """Execute an ordered list of valve actions.
 
         Each step: {"valve_index": int, "state": 0|1, "delay_after_ms": int}
+        Overridden pins are skipped (the step runs but the GPIO write is a no-op).
+        Sensor reads go through controller.read_sensor() which returns the
+        overridden value when the sensor is locked.
 
         Args:
             steps: List of step dicts.
@@ -45,18 +57,16 @@ class BaseModeRunner(ABC):
         for step in steps:
             if self.controller.should_stop():
                 return False
-            if self.controller.wait_if_paused():
-                return False
 
-            if abort_on_sensor is not None and self.gpio.read(self.sensor_read) == abort_on_sensor:
+            if abort_on_sensor is not None and self.read_sensor() == abort_on_sensor:
                 return True
 
             vi = step["valve_index"]
             logical = step["state"]
             pin = self.valve_pins[vi]
-            physical = GpioDriver.valve_level(logical, self.inverted)
-            self.gpio.write(pin, physical)
-            self.controller.set_gpio_state(pin, logical)
+
+            # Write only if the pin is not overridden
+            self.controller.write_pin_if_not_overridden(pin, logical, self.inverted)
 
             # Wait for physical actuation
             timing = self.timings[vi] if vi < len(self.timings) else {}
@@ -72,39 +82,38 @@ class BaseModeRunner(ABC):
                     return True
 
         # Final check
-        if abort_on_sensor is not None and self.gpio.read(self.sensor_read) == abort_on_sensor:
+        if abort_on_sensor is not None and self.read_sensor() == abort_on_sensor:
             return True
         return False
 
     def update_shared_state(self) -> None:
-        """Read all pins and push to controller for SSE."""
-        sensor_val = self.gpio.read(self.sensor_read)
+        """Read all pins and push to controller for SSE.
+
+        For overridden pins, preserve the user's value in gpio_states
+        rather than reading from hardware.
+        """
+        sensor_val = self.read_sensor()
         updates = {
             f"gpio_{self.sensor_drive}": GpioDriver.HIGH,
             f"gpio_{self.sensor_read}": sensor_val,
         }
         for pin in self.valve_pins:
+            if self.controller.is_pin_overridden(pin):
+                # Don't overwrite — the user's value is already in gpio_states
+                continue
             raw = self.gpio.read(pin)
-            # Convert physical to logical for display
-            logical = GpioDriver.valve_level(raw, self.inverted) if self.inverted else raw
-            # Actually: if inverted, physical LOW = logical HIGH (open)
-            # valve_level(logical, inverted) gives physical. To reverse:
-            # logical = valve_level(physical, inverted) works because it's symmetric for bool inversion
             updates[f"gpio_{pin}"] = GpioDriver.valve_level(raw, self.inverted)
         self.controller.set_gpio_states_bulk(updates)
 
     def _interruptible_sleep_ms(self, ms: float, abort_on_sensor: int | None = None) -> bool:
-        """Sleep in 20ms increments, checking for stop/pause/sensor.
+        """Sleep in 20ms increments, checking for stop and sensor.
         Returns True if interrupted by sensor change.
         """
-        import time
         end = time.monotonic() + ms / 1000.0
         while time.monotonic() < end:
             if self.controller.should_stop():
                 return False
-            if self.controller.wait_if_paused():
-                return False
-            if abort_on_sensor is not None and self.gpio.read(self.sensor_read) == abort_on_sensor:
+            if abort_on_sensor is not None and self.read_sensor() == abort_on_sensor:
                 return True
             remaining = end - time.monotonic()
             if remaining > 0:

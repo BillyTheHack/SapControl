@@ -1,8 +1,8 @@
 """
 modes/alternance.py — Timed alternation between N named sequences.
 
-Cycles through sequences[0] → delay → sequences[1] → delay → ... → sequences[N-1] → delay → repeat.
-Each sequence has its own name, steps, and delay_after_ms.
+Cycles through sequences[0] → delay → sequences[1] → delay → ... → repeat.
+Per-pin overrides are transparent — handled by BaseModeRunner.
 """
 
 import logging
@@ -26,8 +26,6 @@ class AlternanceModeRunner(BaseModeRunner):
             for i, seq in enumerate(sequences):
                 if self.controller.should_stop():
                     break
-                if self.controller.wait_if_paused():
-                    return
 
                 name = seq.get("name", f"Sequence {i + 1}")
                 steps = seq.get("steps", [])

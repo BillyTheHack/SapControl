@@ -6,14 +6,13 @@ Slim orchestrator: routes delegate to Controller and ConfigManager.
 Endpoints:
     GET  /                      Serve the single-page UI
     GET  /api/config            Return current config
-    POST /api/config            Save config (stops task unless mode unchanged)
+    POST /api/config            Save config (stops task if running)
     POST /api/task/start        Start the background task
     POST /api/task/stop         Stop the background task
     GET  /api/task/status       Status snapshot
     GET  /api/gpio/stream       SSE stream of GPIO state updates
-    POST /api/manual-override   Enable/disable manual override
-    POST /api/gpio/set          Set a valve pin (manual override only)
-    POST /api/gpio/set-sensor   Set a sensor pin (manual override only)
+    POST /api/override/pin      Override or release a specific GPIO pin
+    POST /api/override/clear    Release all pin overrides
 """
 
 import json
@@ -23,7 +22,7 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template, request
 
-from config_manager import ConfigManager
+from config_manager import ConfigManager, get_valve_pins
 from controller import Controller
 from gpio_driver import GpioDriver
 
@@ -73,7 +72,6 @@ def post_config():
     if error:
         return jsonify({"error": error}), 422
 
-    # Stop the task if mode changed or config changed while running
     if controller.is_running():
         controller.stop()
 
@@ -105,86 +103,60 @@ def task_status():
 
 
 # ---------------------------------------------------------------------------
-# Routes — Manual override
+# Routes — Per-pin override
 # ---------------------------------------------------------------------------
-@app.route("/api/manual-override", methods=["POST"])
-def manual_override():
+@app.route("/api/override/pin", methods=["POST"])
+def override_pin():
+    """Override or release a specific GPIO pin.
+
+    Body: {pin: int, override: bool, state?: 0|1}
+    - override=true + state: lock the pin and set it to this value
+    - override=false: release the pin (mode runner regains control)
+    """
+    if not controller.is_running():
+        return jsonify({"error": "Task is not running"}), 409
+
     data = request.get_json(force=True, silent=True)
     if data is None:
         return jsonify({"error": "Invalid JSON body"}), 400
 
-    enabled = data.get("enabled")
-    if not isinstance(enabled, bool):
-        return jsonify({"error": "enabled must be a boolean"}), 422
+    try:
+        pin = int(data["pin"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "Required: pin (int)"}), 422
 
-    if not controller.is_running():
-        return jsonify({"error": "Task is not running"}), 409
+    override = data.get("override")
+    if not isinstance(override, bool):
+        return jsonify({"error": "override must be a boolean"}), 422
 
-    if enabled:
-        controller.enable_manual_override()
+    # Validate pin is a known pin
+    config = config_manager.load()
+    sensor = config["hardware"]["sensor"]
+    valid_pins = get_valve_pins(config) + [sensor["drive_gpio"], sensor["read_gpio"]]
+    if pin not in valid_pins:
+        return jsonify({"error": f"GPIO {pin} is not a configured pin"}), 422
+
+    if override:
+        try:
+            state = int(data["state"])
+        except (KeyError, TypeError, ValueError):
+            return jsonify({"error": "Required when overriding: state (0 or 1)"}), 422
+        if state not in (0, 1):
+            return jsonify({"error": "state must be 0 or 1"}), 422
+
+        if not controller.override_pin(pin, state, config):
+            return jsonify({"error": "Override failed"}), 422
     else:
-        controller.disable_manual_override()
+        controller.release_pin(pin)
 
-    return jsonify({"ok": True, "manual_override": enabled})
-
-
-@app.route("/api/gpio/set", methods=["POST"])
-def gpio_set():
-    """Set a single valve in manual override mode."""
-    if not controller.is_running():
-        return jsonify({"error": "Task is not running"}), 409
-    if not controller.is_manual_override():
-        return jsonify({"error": "Manual override is not active"}), 409
-
-    data = request.get_json(force=True, silent=True)
-    if data is None:
-        return jsonify({"error": "Invalid JSON body"}), 400
-
-    try:
-        vi = int(data["valve_index"])
-        state = int(data["state"])
-    except (KeyError, TypeError, ValueError):
-        return jsonify({"error": "Required: valve_index (int), state (0 or 1)"}), 422
-
-    if state not in (0, 1):
-        return jsonify({"error": "state must be 0 or 1"}), 422
-
-    config = config_manager.load()
-    if not controller.set_manual_valve(vi, state, config):
-        return jsonify({"error": "Failed to set valve"}), 422
-
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "overridden_pins": controller.get_overridden_pins()})
 
 
-@app.route("/api/gpio/set-sensor", methods=["POST"])
-def gpio_set_sensor():
-    """Set a sensor pin in manual override mode."""
-    if not controller.is_running():
-        return jsonify({"error": "Task is not running"}), 409
-    if not controller.is_manual_override():
-        return jsonify({"error": "Manual override is not active"}), 409
-
-    data = request.get_json(force=True, silent=True)
-    if data is None:
-        return jsonify({"error": "Invalid JSON body"}), 400
-
-    pin_role = data.get("pin")
-    if pin_role not in ("drive", "read"):
-        return jsonify({"error": "pin must be 'drive' or 'read'"}), 422
-
-    try:
-        state = int(data["state"])
-    except (KeyError, TypeError, ValueError):
-        return jsonify({"error": "Required: state (0 or 1)"}), 422
-
-    if state not in (0, 1):
-        return jsonify({"error": "state must be 0 or 1"}), 422
-
-    config = config_manager.load()
-    if not controller.set_manual_sensor(pin_role, state, config):
-        return jsonify({"error": "Sensor override not available"}), 422
-
-    return jsonify({"ok": True})
+@app.route("/api/override/clear", methods=["POST"])
+def override_clear():
+    """Release all pin overrides."""
+    controller.release_all_overrides()
+    return jsonify({"ok": True, "overridden_pins": []})
 
 
 # ---------------------------------------------------------------------------

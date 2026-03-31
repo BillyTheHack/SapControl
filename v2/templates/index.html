@@ -90,13 +90,27 @@
     .btn-stop  { background: var(--red);   color: #fff; }
     .btn-save  { background: var(--accent); color: #fff; }
 
-    /* Manual override toggle in task control */
-    .override-row {
-      display: flex; align-items: center; gap: 12px; margin-top: 14px;
-      padding-top: 14px; border-top: 1px solid var(--border);
+    /* Per-pin override rows */
+    .override-row-item {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 14px; transition: border-color .2s;
     }
-    .override-row .label { font-size: .85rem; font-weight: 600; flex: 1; }
-    .override-row .hint { font-size: .75rem; color: var(--muted); }
+    .override-row-item.overridden { border-color: var(--yellow); }
+    .override-row-item .valve-name { font-size: .9rem; font-weight: 600; overflow: hidden;
+                                     text-overflow: ellipsis; white-space: nowrap; }
+    .override-row-item .valve-pin { font-size: .72rem; color: var(--muted); }
+
+    /* Override checkbox */
+    .override-check { display: flex; align-items: center; cursor: pointer; flex-shrink: 0; }
+    .override-check input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--yellow); }
+
+    .btn-clear-overrides {
+      background: none; border: 1px solid var(--border); border-radius: 6px;
+      color: var(--muted); cursor: pointer; font-size: .78rem; padding: 6px 12px;
+      transition: color .15s, border-color .15s; margin-top: 8px;
+    }
+    .btn-clear-overrides:hover { color: var(--yellow); border-color: var(--yellow); }
 
     /* Toggle switch */
     .toggle { position: relative; width: 48px; height: 26px; flex-shrink: 0; }
@@ -121,17 +135,10 @@
     .toggle-label.on  { color: var(--green); }
     .toggle-label.off { color: var(--muted); }
 
-    /* Manual override controls (hidden by default) */
-    #manual-controls { display: none; }
-    #manual-controls.active { display: block; }
-    .manual-grid { display: flex; flex-direction: column; gap: 8px; }
-    .manual-row {
-      display: flex; align-items: center; gap: 12px;
-      background: var(--bg); border: 1px solid var(--border);
-      border-radius: 8px; padding: 10px 14px;
-    }
-    .manual-row .valve-name { font-size: .9rem; font-weight: 600; }
-    .manual-row .valve-pin { font-size: .72rem; color: var(--muted); }
+    /* Override controls card (hidden when task not running) */
+    #override-controls { display: none; }
+    #override-controls.active { display: block; }
+    .override-grid { display: flex; flex-direction: column; gap: 8px; }
 
     /* GPIO monitor */
     .gpio-grid { display: flex; flex-direction: column; gap: 6px; }
@@ -321,23 +328,16 @@
       </div>
     </div>
 
-    <!-- Manual override toggle -->
-    <div class="override-row">
-      <div>
-        <div class="label">Manual Override</div>
-        <div class="hint">Pause the active mode and control valves directly</div>
-      </div>
-      <label class="toggle">
-        <input type="checkbox" id="override-toggle" onchange="toggleOverride(this.checked)" disabled>
-        <span class="slider"></span>
-      </label>
-    </div>
   </div>
 
-  <!-- Manual controls (shown when override is active) -->
-  <div id="manual-controls" class="card">
-    <h2>Manual Control</h2>
-    <div id="manual-grid" class="manual-grid"></div>
+  <!-- Per-pin override controls (shown when task is running) -->
+  <div id="override-controls" class="card">
+    <h2>Pin Override</h2>
+    <p style="font-size:.78rem;color:var(--muted);margin-bottom:10px">
+      Check a pin to override it. The mode keeps running but cannot change overridden pins.
+    </p>
+    <div id="override-grid" class="override-grid"></div>
+    <button class="btn-clear-overrides" onclick="clearAllOverrides()">Release all overrides</button>
   </div>
 
   <!-- GPIO monitor -->

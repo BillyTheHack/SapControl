@@ -7,10 +7,13 @@ Two-state machine:
 
 Sequences are interruptible: if the sensor changes mid-sequence,
 the opposite sequence runs immediately.
+
+Per-pin overrides are transparent: the mode runner keeps running but
+skips writing to overridden pins, and reads the overridden sensor value
+when the sensor pin is locked.
 """
 
 import logging
-import time
 
 from modes.base import BaseModeRunner
 
@@ -36,10 +39,7 @@ class SequenceModeRunner(BaseModeRunner):
         first_loop = True
 
         while not self.controller.should_stop():
-            if self.controller.wait_if_paused():
-                break
-
-            sensor_value = self.gpio.read(self.sensor_read)
+            sensor_value = self.read_sensor()
             self.update_shared_state()
 
             if state == _IDLE:
@@ -89,5 +89,4 @@ class SequenceModeRunner(BaseModeRunner):
                         self.controller.set_phase(None)
                         logger.info("State → IDLE")
 
-            # Poll interval
             self.controller.interruptible_sleep(self.interval)

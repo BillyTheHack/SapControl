@@ -201,17 +201,13 @@ function addAlternanceSequenceEntry(container, index, seq, c) {
     <button class="btn-add-step" onclick="addStep(this.previousElementSibling.id || assignAltStepsId(this))">+ Add step</button>
   `;
 
-  // Assign ID to steps container
   const stepsEl = div.querySelector('.alt-seq-steps');
   stepsEl.id = `alt-steps-${index}`;
-
-  // Fix the add step button to use the right ID
   const addBtn = div.querySelector('.btn-add-step');
   addBtn.setAttribute('onclick', `addStep('${stepsEl.id}')`);
 
   container.appendChild(div);
 
-  // Render steps
   const steps = seq.steps ?? [];
   steps.forEach((step, i) => appendStepRow(stepsEl, i, step, c));
   renumberSteps(stepsEl);
@@ -232,7 +228,6 @@ function removeAlternanceSequence(btn) {
     return;
   }
   entry.remove();
-  // Re-index
   container.querySelectorAll('.alt-seq-entry').forEach((el, i) => {
     el.dataset.altIndex = i;
     const stepsEl = el.querySelector('.alt-seq-steps');
@@ -306,7 +301,6 @@ function readFormConfig() {
   const interval = parseInt(document.getElementById('poll-interval').value, 10);
   const valve_inverted = document.getElementById('valve-inverted').checked;
 
-  // Valve timings
   const valves_update = [];
   document.querySelectorAll('.timing-open').forEach((el, i) => {
     const closeEl = document.querySelector(`.timing-close[data-index="${i}"]`);
@@ -316,13 +310,11 @@ function readFormConfig() {
     });
   });
 
-  // Default states
   const default_valve_states = [];
   document.querySelectorAll('.default-state-select').forEach(el => {
     default_valve_states.push(parseInt(el.value, 10));
   });
 
-  // Read sequence steps from a container
   function readSteps(containerId) {
     const steps = [];
     document.querySelectorAll(`#${containerId} .seq-step`).forEach(row => {
@@ -335,7 +327,6 @@ function readFormConfig() {
     return steps;
   }
 
-  // Sequence mode — named sequences
   function readNamedSequence(key) {
     const nameInput = document.querySelector(`.seq-name-input[data-key="${key}"]`);
     return {
@@ -344,7 +335,6 @@ function readFormConfig() {
     };
   }
 
-  // Alternance mode — dynamic list
   const altSequences = [];
   document.querySelectorAll('#alt-sequences .alt-seq-entry').forEach(entry => {
     const name = entry.querySelector('.alt-seq-name')?.value?.trim() || 'Unnamed';
@@ -363,22 +353,14 @@ function readFormConfig() {
 
   return {
     mode: currentMode,
-    hardware: {
-      valve_inverted,
-      valves: valves_update,
-    },
-    settings: {
-      poll_interval_ms: interval,
-      default_valve_states,
-    },
+    hardware: { valve_inverted, valves: valves_update },
+    settings: { poll_interval_ms: interval, default_valve_states },
     modes: {
       sequence: {
         on_sensor_high: readNamedSequence('on_sensor_high'),
         on_sensor_low: readNamedSequence('on_sensor_low'),
       },
-      alternance: {
-        sequences: altSequences,
-      },
+      alternance: { sequences: altSequences },
     },
   };
 }
@@ -420,130 +402,149 @@ async function refreshStatus() {
 }
 
 // =========================================================================
-// Manual override
+// Per-pin override
 // =========================================================================
-async function toggleOverride(enabled) {
-  try {
-    const res = await fetch('/api/manual-override', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled }),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      alert(data.error ?? 'Override toggle failed');
-      document.getElementById('override-toggle').checked = !enabled;
-    }
-  } catch (_) {
-    document.getElementById('override-toggle').checked = !enabled;
-  }
-}
-
-function renderManualGrid(c) {
-  const container = document.getElementById('manual-grid');
+function renderOverrideGrid(c, states, overriddenPins) {
+  const container = document.getElementById('override-grid');
   container.innerHTML = '';
   if (!c) return;
 
   const sensor = c.hardware?.sensor ?? {};
   const valves = c.hardware?.valves ?? [];
-  const states = lastStatus.gpio_states ?? {};
 
   // Sensor drive
-  const driveOn = states[`gpio_${sensor.drive_gpio}`] === 1;
-  container.appendChild(makeManualRow(
-    `${sensor.label ?? 'Sensor'} (drive)`, `GPIO ${sensor.drive_gpio}`,
-    'manual-sensor-drive', driveOn,
-    `manualSensorToggle('drive', this.checked)`,
+  container.appendChild(makeOverrideRow(
+    `${sensor.label ?? 'Sensor'} (drive)`, sensor.drive_gpio,
+    states, overriddenPins,
   ));
 
   // Sensor read
-  const readOn = states[`gpio_${sensor.read_gpio}`] === 1;
-  container.appendChild(makeManualRow(
-    `${sensor.label ?? 'Sensor'} (read)`, `GPIO ${sensor.read_gpio}`,
-    'manual-sensor-read', readOn,
-    `manualSensorToggle('read', this.checked)`,
+  container.appendChild(makeOverrideRow(
+    `${sensor.label ?? 'Sensor'} (read)`, sensor.read_gpio,
+    states, overriddenPins,
   ));
 
   // Valves
-  valves.forEach((v, i) => {
-    const isOn = states[`gpio_${v.gpio}`] === 1;
-    container.appendChild(makeManualRow(
-      v.label, `GPIO ${v.gpio}`,
-      `manual-valve-${i}`, isOn,
-      `manualValveToggle(${i}, this.checked)`,
-    ));
+  valves.forEach(v => {
+    container.appendChild(makeOverrideRow(v.label, v.gpio, states, overriddenPins));
   });
 }
 
-function makeManualRow(name, pinText, id, isOn, onchangeStr) {
+function makeOverrideRow(name, pin, states, overriddenPins) {
+  const isOverridden = overriddenPins.includes(pin);
+  const val = states[`gpio_${pin}`];
+  const isOn = val === 1;
+
   const row = document.createElement('div');
-  row.className = 'manual-row';
-  row.id = id;
+  row.className = 'override-row-item' + (isOverridden ? ' overridden' : '');
+  row.id = `ovr-${pin}`;
   row.innerHTML = `
-    <div style="flex:1">
+    <label class="override-check">
+      <input type="checkbox" ${isOverridden ? 'checked' : ''}
+             onchange="togglePinOverride(${pin}, this.checked)">
+      <span class="override-check-mark"></span>
+    </label>
+    <div style="flex:1;min-width:0">
       <div class="valve-name">${esc(name)}</div>
-      <div class="valve-pin">${esc(pinText)}</div>
+      <div class="valve-pin">GPIO ${pin}</div>
     </div>
-    <span class="toggle-label ${isOn ? 'on' : 'off'}" id="${id}-label">${isOn ? 'ON' : 'OFF'}</span>
+    <span class="toggle-label ${isOn ? 'on' : 'off'}" id="ovr-label-${pin}">${isOn ? 'ON' : 'OFF'}</span>
     <label class="toggle">
-      <input type="checkbox" id="${id}-toggle" ${isOn ? 'checked' : ''} onchange="${onchangeStr}">
+      <input type="checkbox" id="ovr-toggle-${pin}" ${isOn ? 'checked' : ''}
+             ${isOverridden ? '' : 'disabled'}
+             onchange="setPinValue(${pin}, this.checked)">
       <span class="slider"></span>
     </label>
   `;
   return row;
 }
 
-async function manualValveToggle(index, checked) {
-  updateToggleLabel(`manual-valve-${index}`, checked);
+async function togglePinOverride(pin, checked) {
+  const toggle = document.getElementById(`ovr-toggle-${pin}`);
+  const row = document.getElementById(`ovr-${pin}`);
+
+  if (checked) {
+    // Override ON — send current value
+    const currentVal = toggle?.checked ? 1 : 0;
+    try {
+      const res = await fetch('/api/override/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin, override: true, state: currentVal }),
+      });
+      if (res.ok) {
+        if (toggle) toggle.disabled = false;
+        if (row) row.classList.add('overridden');
+      }
+    } catch (_) {}
+  } else {
+    // Override OFF — release
+    try {
+      await fetch('/api/override/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin, override: false }),
+      });
+      if (toggle) toggle.disabled = true;
+      if (row) row.classList.remove('overridden');
+    } catch (_) {}
+  }
+}
+
+async function setPinValue(pin, checked) {
+  const state = checked ? 1 : 0;
+  updateToggleLabel(`ovr-label-${pin}`, checked);
   try {
-    await fetch('/api/gpio/set', {
+    await fetch('/api/override/pin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ valve_index: index, state: checked ? 1 : 0 }),
+      body: JSON.stringify({ pin, override: true, state }),
     });
   } catch (_) {}
 }
 
-async function manualSensorToggle(role, checked) {
-  updateToggleLabel(`manual-sensor-${role}`, checked);
+async function clearAllOverrides() {
   try {
-    await fetch('/api/gpio/set-sensor', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin: role, state: checked ? 1 : 0 }),
-    });
+    await fetch('/api/override/clear', { method: 'POST' });
   } catch (_) {}
 }
 
-function updateToggleLabel(rowId, isOn) {
-  const label = document.getElementById(`${rowId}-label`);
+function updateToggleLabel(id, isOn) {
+  const label = document.getElementById(id);
   if (label) {
     label.textContent = isOn ? 'ON' : 'OFF';
     label.className = `toggle-label ${isOn ? 'on' : 'off'}`;
   }
 }
 
-function syncManualToggles(states) {
+function syncOverrideToggles(states, overriddenPins) {
   if (!cfg) return;
-  const sensor = cfg.hardware?.sensor ?? {};
-  syncOneToggle('manual-sensor-drive', states[`gpio_${sensor.drive_gpio}`]);
-  syncOneToggle('manual-sensor-read', states[`gpio_${sensor.read_gpio}`]);
-  const valves = cfg.hardware?.valves ?? [];
-  valves.forEach((v, i) => {
-    syncOneToggle(`manual-valve-${i}`, states[`gpio_${v.gpio}`]);
-  });
+  const allPins = getAllPins(cfg);
+  for (const pin of allPins) {
+    const isOverridden = overriddenPins.includes(pin);
+    const toggle = document.getElementById(`ovr-toggle-${pin}`);
+    const label = document.getElementById(`ovr-label-${pin}`);
+    const row = document.getElementById(`ovr-${pin}`);
+    const checkBox = row?.querySelector('.override-check input');
+    if (!toggle) continue;
+
+    const val = states[`gpio_${pin}`];
+    const isOn = val === 1;
+    toggle.checked = isOn;
+    toggle.disabled = !isOverridden;
+    if (label) {
+      label.textContent = isOn ? 'ON' : 'OFF';
+      label.className = `toggle-label ${isOn ? 'on' : 'off'}`;
+    }
+    if (row) row.classList.toggle('overridden', isOverridden);
+    if (checkBox) checkBox.checked = isOverridden;
+  }
 }
 
-function syncOneToggle(rowId, val) {
-  const toggle = document.getElementById(`${rowId}-toggle`);
-  const label = document.getElementById(`${rowId}-label`);
-  if (!toggle) return;
-  const isOn = val === 1;
-  toggle.checked = isOn;
-  if (label) {
-    label.textContent = isOn ? 'ON' : 'OFF';
-    label.className = `toggle-label ${isOn ? 'on' : 'off'}`;
-  }
+function getAllPins(c) {
+  const sensor = c.hardware?.sensor ?? {};
+  const valves = c.hardware?.valves ?? [];
+  return [sensor.drive_gpio, sensor.read_gpio, ...valves.map(v => v.gpio)];
 }
 
 // =========================================================================
@@ -580,7 +581,8 @@ function connectSSE() {
 function applyStatus(data) {
   const running = data.running;
   const mode = data.mode ?? currentMode;
-  const override = data.manual_override ?? false;
+  const overriddenPins = data.overridden_pins ?? [];
+  const hasOverrides = overriddenPins.length > 0;
   const phase = data.phase;
   const states = data.gpio_states ?? {};
 
@@ -610,25 +612,26 @@ function applyStatus(data) {
   modeBadge.dataset.mode = mode;
   modeBadge.textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
 
-  // Override badge + toggle
+  // Override badge
   const overrideBadge = document.getElementById('override-badge');
-  const overrideToggle = document.getElementById('override-toggle');
-  overrideBadge.classList.toggle('active', override);
-  overrideToggle.checked = override;
-  overrideToggle.disabled = !running;
+  overrideBadge.classList.toggle('active', hasOverrides);
+  if (hasOverrides) {
+    overrideBadge.textContent = `Override (${overriddenPins.length})`;
+  }
 
-  // Manual controls visibility
-  const manualControls = document.getElementById('manual-controls');
-  if (override) {
-    manualControls.classList.add('active');
-    if (!manualControls.dataset.rendered) {
-      renderManualGrid(cfg);
-      manualControls.dataset.rendered = '1';
+  // Override controls visibility + rendering
+  const overrideControls = document.getElementById('override-controls');
+  if (running) {
+    overrideControls.classList.add('active');
+    if (!overrideControls.dataset.rendered) {
+      renderOverrideGrid(cfg, states, overriddenPins);
+      overrideControls.dataset.rendered = '1';
+    } else {
+      syncOverrideToggles(states, overriddenPins);
     }
-    syncManualToggles(states);
   } else {
-    manualControls.classList.remove('active');
-    manualControls.dataset.rendered = '';
+    overrideControls.classList.remove('active');
+    overrideControls.dataset.rendered = '';
   }
 
   // GPIO grid — render once, then diff-update
@@ -636,7 +639,6 @@ function applyStatus(data) {
     renderGpioGrid(cfg, states);
     gpioGridRendered = true;
   } else {
-    // Diff update
     const prev = lastStatus.gpio_states ?? {};
     for (const [key, val] of Object.entries(states)) {
       if (prev[key] !== val) {
@@ -722,13 +724,11 @@ function updateDiagram(c, states, running, phase) {
   const sensorVal = states[`gpio_${sensor.read_gpio}`];
   const circuitClosed = sensorVal === 1;
 
-  // Sensors
   diagClass('d-sensor-top', circuitClosed ? 'on' : '');
   diagClass('d-label-sensor-top', circuitClosed ? 'on' : '');
   diagClass('d-sensor-bot', !circuitClosed && running ? 'on' : '');
   diagClass('d-label-sensor-bot', !circuitClosed && running ? 'on' : '');
 
-  // Water level
   const waterEl = document.getElementById('d-water');
   if (waterEl) {
     let waterY, waterH;
@@ -739,19 +739,16 @@ function updateDiagram(c, states, running, phase) {
     waterEl.setAttribute('height', waterH);
   }
 
-  // Valves & pump
   valves.forEach(v => {
     const lbl = (v.label ?? '').toLowerCase();
     const val = states[`gpio_${v.gpio}`];
     const isOn = val === 1;
-
     const entry = VALVE_DIAGRAM_MAP.find(e => {
       if (e.match === 'pump')       return lbl === 'water pump';
       if (e.match === 'water pump') return lbl.includes('water pump') && lbl !== 'water pump';
       return lbl.includes(e.match);
     });
     if (!entry) return;
-
     if (entry.pump) {
       diagClass(entry.pump, isOn ? 'active' : '');
       diagClass(entry.label, isOn ? 'pump-active' : '');
@@ -765,7 +762,6 @@ function updateDiagram(c, states, running, phase) {
     }
   });
 
-  // Phase banner
   const phaseEl = document.getElementById('d-phase');
   if (phaseEl) {
     if (!running) {

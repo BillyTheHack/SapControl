@@ -1,8 +1,15 @@
 """
 controller.py — Central controller for task lifecycle and shared state.
 
-Thread-safe state management with manual override support.
+Thread-safe state management with per-pin manual override support.
 The controller owns the background thread and all GPIO state visible to the UI.
+
+Override model:
+    Individual pins can be overridden independently. An overridden pin is
+    "locked" — the mode runner cannot write to it. The user controls its
+    value directly. The mode runner keeps running, just skipping writes
+    to overridden pins. This lets you e.g. lock the sensor read pin to
+    test a sequence, or lock one valve while the rest operate normally.
 """
 
 import logging
@@ -15,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class Controller:
-    """Manages the background task, GPIO state, and manual override."""
+    """Manages the background task, GPIO state, and per-pin overrides."""
 
     def __init__(self, gpio: GpioDriver):
         self._gpio = gpio
@@ -26,13 +33,10 @@ class Controller:
         self._running = False
         self._mode: str = "sequence"
         self._phase: str | None = None
-        self._manual_override = False
         self._gpio_states: dict[str, int] = {}
 
-        # Pause/resume event for manual override.
-        # Set = running normally, Clear = paused.
-        self._pause_event = threading.Event()
-        self._pause_event.set()
+        # Per-pin override: set of GPIO pin numbers currently locked
+        self._overridden_pins: set[int] = set()
 
         # Stop event — cleared when running, set to signal stop.
         self._stop_event = threading.Event()
@@ -53,13 +57,24 @@ class Controller:
         with self._lock:
             return self._phase
 
-    def is_manual_override(self) -> bool:
-        with self._lock:
-            return self._manual_override
-
     def get_gpio_states(self) -> dict[str, int]:
         with self._lock:
             return dict(self._gpio_states)
+
+    def get_overridden_pins(self) -> list[int]:
+        """Return sorted list of currently overridden GPIO pin numbers."""
+        with self._lock:
+            return sorted(self._overridden_pins)
+
+    def is_pin_overridden(self, pin: int) -> bool:
+        """Check if a specific GPIO pin is currently overridden."""
+        with self._lock:
+            return pin in self._overridden_pins
+
+    def has_any_override(self) -> bool:
+        """Check if any pin is currently overridden."""
+        with self._lock:
+            return len(self._overridden_pins) > 0
 
     def get_status(self) -> dict:
         """Return a complete status snapshot for SSE."""
@@ -68,7 +83,7 @@ class Controller:
                 "running": self._running,
                 "mode": self._mode,
                 "phase": self._phase,
-                "manual_override": self._manual_override,
+                "overridden_pins": sorted(self._overridden_pins),
                 "gpio_states": dict(self._gpio_states),
             }
 
@@ -105,8 +120,7 @@ class Controller:
             self._running = True
             self._mode = config.get("mode", "sequence")
             self._phase = None
-            self._manual_override = False
-            self._pause_event.set()
+            self._overridden_pins.clear()
             self._stop_event.clear()
 
         self._thread = threading.Thread(
@@ -125,11 +139,9 @@ class Controller:
                 logger.warning("stop() called but task is not running")
                 return False
             self._running = False
-            self._manual_override = False
+            self._overridden_pins.clear()
 
-        # Wake up the mode runner if it's paused or sleeping
         self._stop_event.set()
-        self._pause_event.set()
 
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=5)
@@ -138,96 +150,94 @@ class Controller:
         return True
 
     # ------------------------------------------------------------------
-    # Manual override
+    # Per-pin override
     # ------------------------------------------------------------------
-    def enable_manual_override(self) -> bool:
-        """Enable manual override — pauses the mode runner."""
+    def override_pin(self, pin: int, state: int, config: dict) -> bool:
+        """Add a pin to the override set and write its value.
+
+        The mode runner will skip this pin until it is released.
+        Works for both valve pins and sensor pins.
+        """
         with self._lock:
             if not self._running:
                 return False
-            self._manual_override = True
-        self._pause_event.clear()
-        logger.info("Manual override enabled")
-        return True
+            self._overridden_pins.add(pin)
 
-    def disable_manual_override(self) -> bool:
-        """Disable manual override — resumes the mode runner."""
-        with self._lock:
-            if not self._running:
-                return False
-            self._manual_override = False
-        self._pause_event.set()
-        logger.info("Manual override disabled")
-        return True
-
-    def set_manual_valve(self, valve_index: int, logical_state: int, config: dict) -> bool:
-        """Directly set a valve GPIO pin (only when override is active)."""
-        with self._lock:
-            if not self._manual_override:
-                return False
-
-        valve_pins = get_valve_pins(config)
         inverted = config["hardware"].get("valve_inverted", True)
+        valve_pins = get_valve_pins(config)
 
-        if not 0 <= valve_index < len(valve_pins):
-            return False
-
-        pin = valve_pins[valve_index]
-        physical = GpioDriver.valve_level(logical_state, inverted)
-        self._gpio.write(pin, physical)
-        self.set_gpio_state(pin, logical_state)
-        logger.info("Manual: valve %d (GPIO%d) → %s",
-                     valve_index, pin, "open" if logical_state else "closed")
-        return True
-
-    def set_manual_sensor(self, pin_role: str, state: int, config: dict) -> bool:
-        """Set a sensor pin in manual override (mock only for read pin)."""
-        with self._lock:
-            if not self._manual_override:
-                return False
-
-        sensor = config["hardware"]["sensor"]
-
-        if pin_role == "drive":
-            pin = sensor["drive_gpio"]
-            self._gpio.write(pin, state)
+        # Determine if this is a valve pin (needs inversion) or sensor pin
+        if pin in valve_pins:
+            physical = GpioDriver.valve_level(state, inverted)
+            self._gpio.write(pin, physical)
             self.set_gpio_state(pin, state)
-            logger.info("Manual: sensor drive (GPIO%d) → %d", pin, state)
-            return True
-        elif pin_role == "read":
-            if self._gpio.mock:
-                pin = sensor["read_gpio"]
+            label = next((v["label"] for v in config["hardware"]["valves"] if v["gpio"] == pin), f"GPIO{pin}")
+            logger.info("Override: %s (GPIO%d) → %s", label, pin, "open" if state else "closed")
+        else:
+            # Sensor pin — write directly (mock only for read pin)
+            sensor = config["hardware"]["sensor"]
+            if pin == sensor["read_gpio"] and not self._gpio.mock:
+                logger.warning("Sensor read override ignored on real hardware (input pin)")
+                # Still add to override set so mode runner uses overridden value
+                self.set_gpio_state(pin, state)
+            else:
                 self._gpio.write(pin, state)
                 self.set_gpio_state(pin, state)
-                logger.info("Manual: sensor read (GPIO%d) → %d (mock)", pin, state)
-                return True
-            else:
-                logger.warning("Sensor read override ignored on real hardware")
+                logger.info("Override: sensor GPIO%d → %d", pin, state)
+        return True
+
+    def release_pin(self, pin: int) -> bool:
+        """Remove a pin from the override set. The mode runner regains control."""
+        with self._lock:
+            if pin not in self._overridden_pins:
                 return False
-        return False
+            self._overridden_pins.discard(pin)
+        logger.info("Released override: GPIO%d", pin)
+        return True
+
+    def release_all_overrides(self) -> None:
+        """Release all pin overrides."""
+        with self._lock:
+            self._overridden_pins.clear()
+        logger.info("All overrides released")
 
     # ------------------------------------------------------------------
-    # Helpers for mode runners
+    # Mode runner helpers
     # ------------------------------------------------------------------
     def should_stop(self) -> bool:
         """Check if the task should stop (non-blocking)."""
         return self._stop_event.is_set()
-
-    def wait_if_paused(self, timeout: float = 0.1) -> bool:
-        """Block if manual override is active.
-        Returns True if we should stop, False if we can continue.
-        """
-        while not self._pause_event.is_set():
-            if self.should_stop():
-                return True
-            self._pause_event.wait(timeout=0.1)
-        return self.should_stop()
 
     def interruptible_sleep(self, seconds: float) -> bool:
         """Sleep in small increments, waking on stop signal.
         Returns True if interrupted (should stop).
         """
         return self._stop_event.wait(timeout=seconds)
+
+    def write_pin_if_not_overridden(self, pin: int, logical: int, inverted: bool) -> bool:
+        """Write to a valve pin only if it is not overridden.
+
+        Returns True if the write was performed, False if the pin is locked.
+        Always updates the tracked gpio_state regardless (so SSE shows
+        what the mode *wants* for non-overridden pins, and the user's
+        value for overridden pins).
+        """
+        with self._lock:
+            if pin in self._overridden_pins:
+                return False
+        physical = GpioDriver.valve_level(logical, inverted)
+        self._gpio.write(pin, physical)
+        self.set_gpio_state(pin, logical)
+        return True
+
+    def read_sensor(self, pin: int) -> int:
+        """Read the sensor pin. If it's overridden, return the overridden value
+        from gpio_states instead of reading real hardware.
+        """
+        with self._lock:
+            if pin in self._overridden_pins:
+                return self._gpio_states.get(f"gpio_{pin}", 0)
+        return self._gpio.read(pin)
 
     # ------------------------------------------------------------------
     # Main run loop
@@ -274,7 +284,7 @@ class Controller:
                     self._gpio_states[f"gpio_{pin}"] = ds
                 self._running = False
                 self._phase = None
-                self._manual_override = False
+                self._overridden_pins.clear()
 
             logger.info("Background task stopped, GPIO cleaned up")
 
