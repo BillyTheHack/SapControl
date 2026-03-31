@@ -17,6 +17,7 @@ import threading
 
 from gpio_driver import GpioDriver
 from config_manager import get_valve_pins, get_valve_timings
+from task_logger import task_log
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,7 @@ class Controller:
         )
         self._thread.start()
         logger.info("Background task started in %s mode", self._mode)
+        task_log.info("TASK    started in %s mode", self._mode)
         return True
 
     def stop(self) -> bool:
@@ -167,6 +169,7 @@ class Controller:
             self._thread.join(timeout=5)
         self._thread = None
         logger.info("Background task stopped")
+        task_log.info("TASK    stopped")
         return True
 
     # ------------------------------------------------------------------
@@ -193,6 +196,7 @@ class Controller:
             self.set_gpio_state(pin, state)
             label = next((v["label"] for v in config["hardware"]["valves"] if v["gpio"] == pin), f"GPIO{pin}")
             logger.info("Override: %s (GPIO%d) → %s", label, pin, "open" if state else "closed")
+            task_log.info("OVERRIDE  %s (GPIO%d) → %s", label, pin, "open" if state else "closed")
         else:
             # Sensor pin — write directly (mock only for read pin)
             sensor = config["hardware"]["sensor"]
@@ -200,10 +204,12 @@ class Controller:
                 logger.warning("Sensor read override ignored on real hardware (input pin)")
                 # Still add to override set so mode runner uses overridden value
                 self.set_gpio_state(pin, state)
+                task_log.info("OVERRIDE  sensor read (GPIO%d) → %s (virtual)", pin, "HIGH" if state else "LOW")
             else:
                 self._gpio.write(pin, state)
                 self.set_gpio_state(pin, state)
                 logger.info("Override: sensor GPIO%d → %d", pin, state)
+                task_log.info("OVERRIDE  sensor (GPIO%d) → %s", pin, "HIGH" if state else "LOW")
         return True
 
     def release_pin(self, pin: int) -> bool:
@@ -213,13 +219,17 @@ class Controller:
                 return False
             self._overridden_pins.discard(pin)
         logger.info("Released override: GPIO%d", pin)
+        task_log.info("OVERRIDE  GPIO%d released", pin)
         return True
 
     def release_all_overrides(self) -> None:
         """Release all pin overrides."""
         with self._lock:
+            count = len(self._overridden_pins)
             self._overridden_pins.clear()
         logger.info("All overrides released")
+        if count > 0:
+            task_log.info("OVERRIDE  all released (%d pins)", count)
 
     # ------------------------------------------------------------------
     # Mode runner helpers
