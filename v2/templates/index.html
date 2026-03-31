@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Water Controller</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3a;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --accent: #3b82f6;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+      --orange: #f97316;
+      --radius: 10px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      padding: 16px 12px;
+    }
+
+    h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
+    h2 { font-size: 1rem; font-weight: 600; color: var(--muted); text-transform: uppercase;
+         letter-spacing: .06em; margin-bottom: 14px; }
+
+    .layout { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+    .subtitle { color: var(--muted); font-size: .85rem; margin-bottom: 24px; }
+
+    /* Cards */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 22px;
+    }
+
+    /* Status bar */
+    .status-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: .82rem; font-weight: 600; padding: 4px 10px;
+      border-radius: 999px; text-transform: uppercase; letter-spacing: .05em;
+    }
+    .badge-running { background: #14532d55; color: var(--green); border: 1px solid #166534; }
+    .badge-stopped { background: #7f1d1d44; color: var(--red); border: 1px solid #991b1b; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot-green { background: var(--green); animation: pulse-green 2s infinite; }
+    .dot-red   { background: var(--red); }
+
+    .mode-badge {
+      font-size: .72rem; font-weight: 700; padding: 3px 8px; border-radius: 5px;
+      text-transform: uppercase; letter-spacing: .05em;
+      background: #1e293b; color: var(--muted); border: 1px solid var(--border);
+    }
+    .mode-badge[data-mode="sequence"]   { color: var(--accent); border-color: #1d4ed8; background: #1e3a5f44; }
+    .mode-badge[data-mode="alternance"] { color: var(--orange); border-color: #c2410c; background: #431a0044; }
+
+    .override-badge {
+      font-size: .72rem; font-weight: 700; padding: 3px 8px; border-radius: 5px;
+      text-transform: uppercase; letter-spacing: .05em;
+      color: var(--yellow); border: 1px solid #a16207; background: #422006aa;
+      display: none;
+    }
+    .override-badge.active { display: inline-block; }
+
+    @keyframes pulse-green {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .4; }
+    }
+
+    .btn-row { display: flex; gap: 10px; margin-left: auto; flex-wrap: wrap; }
+    .btn {
+      cursor: pointer; border: none; border-radius: 7px; padding: 8px 18px;
+      font-size: .875rem; font-weight: 600; transition: opacity .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-start { background: var(--green); color: #052e16; }
+    .btn-stop  { background: var(--red);   color: #fff; }
+    .btn-save  { background: var(--accent); color: #fff; }
+
+    /* Manual override toggle in task control */
+    .override-row {
+      display: flex; align-items: center; gap: 12px; margin-top: 14px;
+      padding-top: 14px; border-top: 1px solid var(--border);
+    }
+    .override-row .label { font-size: .85rem; font-weight: 600; flex: 1; }
+    .override-row .hint { font-size: .75rem; color: var(--muted); }
+
+    /* Toggle switch */
+    .toggle { position: relative; width: 48px; height: 26px; flex-shrink: 0; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle .slider {
+      position: absolute; inset: 0; background: #334155; border-radius: 26px;
+      cursor: pointer; transition: background .2s;
+    }
+    .toggle .slider::before {
+      content: ''; position: absolute; left: 3px; top: 3px;
+      width: 20px; height: 20px; background: var(--text);
+      border-radius: 50%; transition: transform .2s;
+    }
+    .toggle input:checked + .slider { background: var(--green); }
+    .toggle input:checked + .slider::before { transform: translateX(22px); }
+    .toggle input:disabled + .slider { opacity: .4; cursor: not-allowed; }
+
+    .toggle-label {
+      font-size: .75rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .05em; min-width: 38px;
+    }
+    .toggle-label.on  { color: var(--green); }
+    .toggle-label.off { color: var(--muted); }
+
+    /* Manual override controls (hidden by default) */
+    #manual-controls { display: none; }
+    #manual-controls.active { display: block; }
+    .manual-grid { display: flex; flex-direction: column; gap: 8px; }
+    .manual-row {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px;
+    }
+    .manual-row .valve-name { font-size: .9rem; font-weight: 600; }
+    .manual-row .valve-pin { font-size: .72rem; color: var(--muted); }
+
+    /* GPIO monitor */
+    .gpio-grid { display: flex; flex-direction: column; gap: 6px; }
+    .gpio-item {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 12px; display: grid;
+      grid-template-columns: 1fr auto; grid-template-rows: auto auto;
+      column-gap: 10px; row-gap: 1px; align-items: center;
+    }
+    .gpio-role  { font-size: .68rem; font-weight: 700; text-transform: uppercase;
+                  letter-spacing: .07em; color: var(--muted); grid-column: 1; }
+    .gpio-label { font-size: .9rem; font-weight: 600; grid-column: 1; }
+    .gpio-pin   { font-size: .75rem; color: var(--muted); grid-column: 1; }
+    .gpio-state {
+      font-size: .78rem; font-weight: 700; padding: 3px 10px; border-radius: 5px;
+      display: inline-block; width: fit-content;
+      grid-column: 2; grid-row: 1 / 4; align-self: center; white-space: nowrap;
+    }
+    .state-high    { background: #14532d55; color: var(--green); border: 1px solid #166534; }
+    .state-low     { background: #1e293b;   color: var(--muted); border: 1px solid var(--border); }
+    .state-unknown { background: #1e293b;   color: var(--muted); border: 1px solid var(--border); }
+
+    /* Config form */
+    .form-grid { display: grid; gap: 16px; }
+    .form-row  { display: grid; gap: 6px; }
+    label { font-size: .82rem; font-weight: 600; color: var(--muted); }
+    input[type="number"], input[type="text"] {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); font-size: .9rem; padding: 8px 12px; width: 100%;
+      outline: none; transition: border-color .15s;
+    }
+    input[type="number"]:focus, input[type="text"]:focus { border-color: var(--accent); }
+
+    /* Pin table (read-only) */
+    .pin-table { display: flex; flex-direction: column; gap: 6px; }
+    .pin-row {
+      display: flex; align-items: center; gap: 10px; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px;
+      font-size: .875rem;
+    }
+    .pin-role { font-size: .7rem; font-weight: 700; text-transform: uppercase;
+                letter-spacing: .06em; color: var(--muted); min-width: 50px; }
+    .pin-num  { font-family: monospace; color: var(--accent); min-width: 80px; }
+    .pin-name { color: var(--text); }
+    .pin-hint { font-size: .75rem; color: var(--muted); font-style: italic; margin-top: 4px; }
+
+    .feedback { font-size: .82rem; padding: 8px 12px; border-radius: 6px; display: none; }
+    .feedback.ok    { background: #14532d55; color: var(--green); display: block; }
+    .feedback.error { background: #7f1d1d44; color: var(--red);   display: block; }
+
+    hr { border: none; border-top: 1px solid var(--border); margin: 4px 0 16px; }
+
+    /* Mode tabs */
+    .mode-tabs {
+      display: flex; gap: 0; border: 1px solid var(--border);
+      border-radius: 8px; overflow: hidden; margin-bottom: 4px;
+    }
+    .mode-tab {
+      flex: 1; background: var(--bg); border: none; color: var(--muted);
+      font-size: .82rem; font-weight: 600; padding: 10px 6px; cursor: pointer;
+      text-align: center; transition: background .15s, color .15s;
+      border-right: 1px solid var(--border);
+    }
+    .mode-tab:last-child { border-right: none; }
+    .mode-tab:hover { color: var(--text); }
+    .mode-tab.active { background: var(--accent); color: #fff; }
+    .mode-tab[data-mode="alternance"].active { background: var(--orange); }
+
+    .mode-section { display: none; }
+    .mode-section.active { display: block; }
+
+    /* Valve timing / default state table */
+    .timing-table { display: flex; flex-direction: column; gap: 8px; }
+    .timing-row {
+      display: grid; grid-template-columns: 1fr minmax(0,110px) minmax(0,110px);
+      align-items: center; gap: 8px; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+    }
+    .timing-label { font-size: .875rem; font-weight: 600; overflow: hidden;
+                    text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .timing-sub   { font-size: .72rem; color: var(--muted); margin-top: 2px; }
+
+    /* Sequence builder */
+    .seq-block { display: flex; flex-direction: column; gap: 8px; }
+    .seq-step {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 12px; display: grid;
+      grid-template-columns: 24px 1fr 32px; gap: 8px; align-items: start;
+    }
+    .seq-step-num {
+      color: var(--muted); font-size: .75rem; font-weight: 700;
+      padding-top: 6px; text-align: center;
+    }
+    .seq-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .seq-field { display: flex; flex-direction: column; gap: 3px; }
+    .seq-field-wide { grid-column: 1 / -1; }
+    .seq-field label {
+      font-size: .68rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .05em; color: var(--muted);
+    }
+    .seq-step select, .seq-step input {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 5px;
+      color: var(--text); font-size: .875rem; padding: 6px 8px; width: 100%; outline: none;
+    }
+    .seq-step select:focus, .seq-step input:focus { border-color: var(--accent); }
+    .btn-icon {
+      background: none; border: 1px solid var(--border); border-radius: 5px;
+      color: var(--muted); cursor: pointer; font-size: .9rem; line-height: 1;
+      padding: 5px 6px; margin-top: 2px; transition: color .15s, border-color .15s;
+    }
+    .btn-icon:hover { color: var(--red); border-color: var(--red); }
+    .btn-add-step {
+      background: none; border: 1px dashed var(--border); border-radius: 6px;
+      color: var(--muted); cursor: pointer; font-size: .85rem; padding: 9px;
+      text-align: center; width: 100%; transition: color .15s, border-color .15s;
+    }
+    .btn-add-step:hover { color: var(--accent); border-color: var(--accent); }
+
+    /* Alternance sequence list */
+    .alt-seq-entry { margin-bottom: 16px; }
+    .alt-seq-header {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+    }
+    .alt-seq-header input[type="text"] { flex: 1; }
+    .alt-seq-header input[type="number"] { width: 110px; }
+    .btn-remove-seq {
+      background: none; border: 1px solid var(--border); border-radius: 5px;
+      color: var(--muted); cursor: pointer; font-size: .85rem; padding: 5px 8px;
+      transition: color .15s, border-color .15s;
+    }
+    .btn-remove-seq:hover { color: var(--red); border-color: var(--red); }
+
+    /* Connection indicator */
+    #conn-indicator { font-size: .75rem; color: var(--muted); text-align: right; }
+
+    /* System diagram */
+    #diagram-wrap { width: 100%; }
+    #system-diagram { display: block; width: 100%; height: auto; }
+
+    .d-pipe   { stroke: #334155; stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; transition: stroke .35s; }
+    .d-tank   { fill: #1e293b; stroke: #334155; stroke-width: 2; }
+    .d-water  { fill: #1d4ed844; transition: height .5s, y .5s; }
+    .d-valve  { fill: #334155; stroke: #475569; stroke-width: 1.5; transition: fill .3s, stroke .3s; }
+    .d-pump   { fill: #334155; stroke: #475569; stroke-width: 1.5; transition: fill .3s, stroke .3s; }
+    .d-sensor { fill: #334155; stroke: #475569; stroke-width: 1.5; transition: fill .3s, stroke .3s; }
+    .d-label  { fill: #64748b; font-family: system-ui,sans-serif; font-size: 11px; text-anchor: middle; transition: fill .3s; }
+
+    .d-pipe.active { stroke: #3b82f6; }
+    .d-valve.open   { fill: #14532d; stroke: #22c55e; }
+    .d-valve.closed { fill: #7f1d1d; stroke: #ef4444; }
+    .d-label.open   { fill: #22c55e; }
+    .d-label.closed { fill: #ef4444; }
+    .d-sensor.on { fill: #1e3a5f; stroke: #3b82f6; }
+    .d-label.on  { fill: #3b82f6; }
+    .d-pump.active  { fill: #14532d; stroke: #22c55e; }
+    .d-label.pump-active { fill: #22c55e; }
+
+    #d-phase {
+      font-family: system-ui,sans-serif; font-size: 12px; font-weight: 700;
+      fill: #475569; text-anchor: middle; transition: fill .3s;
+    }
+    #d-phase.active { fill: #3b82f6; }
+    #d-phase.idle   { fill: #475569; }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <div>
+    <h1>Water Controller</h1>
+    <p class="subtitle">GPIO-based water level control &amp; valve management</p>
+  </div>
+
+  <!-- Status + controls -->
+  <div class="card">
+    <h2>Task Control</h2>
+    <div class="status-bar">
+      <span id="task-badge" class="badge badge-stopped">
+        <span id="task-dot" class="dot dot-red"></span>
+        <span id="task-label">Stopped</span>
+      </span>
+      <span id="mode-badge" class="mode-badge" data-mode="sequence">Sequence</span>
+      <span id="override-badge" class="override-badge">Override</span>
+      <div class="btn-row">
+        <button id="btn-start" class="btn btn-start" onclick="taskAction('start')">Start</button>
+        <button id="btn-stop"  class="btn btn-stop"  onclick="taskAction('stop')" disabled>Stop</button>
+      </div>
+    </div>
+
+    <!-- Manual override toggle -->
+    <div class="override-row">
+      <div>
+        <div class="label">Manual Override</div>
+        <div class="hint">Pause the active mode and control valves directly</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="override-toggle" onchange="toggleOverride(this.checked)" disabled>
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Manual controls (shown when override is active) -->
+  <div id="manual-controls" class="card">
+    <h2>Manual Control</h2>
+    <div id="manual-grid" class="manual-grid"></div>
+  </div>
+
+  <!-- GPIO monitor -->
+  <div class="card">
+    <h2>GPIO Monitor</h2>
+    <div id="gpio-grid" class="gpio-grid">
+      <p style="color:var(--muted);font-size:.85rem">Loading GPIO state…</p>
+    </div>
+    <p id="conn-indicator">Connecting…</p>
+  </div>
+
+  <!-- System diagram -->
+  <div class="card" style="padding-left:8px;padding-right:8px">
+    <h2 style="padding-left:8px">System Diagram</h2>
+    <div id="diagram-wrap">
+      <svg id="system-diagram" viewBox="0 0 540 420" xmlns="http://www.w3.org/2000/svg">
+        <rect class="d-tank" x="180" y="80" width="180" height="220" rx="6"/>
+        <clipPath id="tank-clip"><rect x="182" y="82" width="176" height="216" rx="4"/></clipPath>
+        <rect id="d-water" class="d-water" x="182" y="252" width="176" height="46" clip-path="url(#tank-clip)"/>
+
+        <line class="d-pipe" x1="270" y1="80" x2="270" y2="115"/>
+        <circle id="d-sensor-top" class="d-sensor" cx="270" cy="125" r="10"/>
+        <text class="d-label" id="d-label-sensor-top" x="270" y="148">Top</text>
+
+        <line class="d-pipe" x1="270" y1="300" x2="270" y2="265"/>
+        <circle id="d-sensor-bot" class="d-sensor" cx="270" cy="255" r="10"/>
+        <text class="d-label" id="d-label-sensor-bot" x="270" y="278">Bottom</text>
+
+        <polyline id="d-pipe-vacuum" class="d-pipe" points="180,100 90,100 90,40"/>
+        <polygon id="d-valve-vacuum" class="d-valve" points="90,86 104,100 90,114 76,100"/>
+        <text class="d-label" id="d-label-vacuum" x="90" y="130">Vacuum</text>
+
+        <line id="d-pipe-air" class="d-pipe" x1="40" y1="190" x2="180" y2="190"/>
+        <polygon id="d-valve-air" class="d-valve" points="90,176 104,190 90,204 76,190"/>
+        <text class="d-label" id="d-label-air" x="90" y="218">Air</text>
+
+        <polyline id="d-pipe-wp-valve" class="d-pipe" points="40,300 90,300 180,300"/>
+        <polygon id="d-valve-wp" class="d-valve" points="90,286 104,300 90,314 76,300"/>
+        <text class="d-label" id="d-label-wp-valve" x="90" y="323">Water Pump<tspan x="90" dy="13">Valve</tspan></text>
+
+        <polyline id="d-pipe-maple" class="d-pipe" points="360,100 450,100 450,40"/>
+        <polygon id="d-valve-maple" class="d-valve" points="450,86 464,100 450,114 436,100"/>
+        <text class="d-label" id="d-label-maple" x="450" y="130">Maple Trees</text>
+
+        <line id="d-pipe-pump" class="d-pipe" x1="270" y1="300" x2="270" y2="370"/>
+        <circle id="d-pump" class="d-pump" cx="270" cy="375" r="18"/>
+        <text style="fill:#475569;font-size:16px;text-anchor:middle;dominant-baseline:central;pointer-events:none"
+              id="d-pump-icon" x="270" y="376">&#x27F3;</text>
+        <text class="d-label" id="d-label-pump" x="270" y="408">Water Pump</text>
+
+        <text id="d-phase" x="270" y="22">&mdash;</text>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Configuration -->
+  <div class="card">
+    <h2>Configuration</h2>
+    <div class="form-grid">
+
+      <!-- Pin summary (read-only) -->
+      <div>
+        <label style="display:block;margin-bottom:8px">GPIO pins</label>
+        <div id="pin-table" class="pin-table"></div>
+        <p class="pin-hint">Edit config.json to change pins or labels, then restart the server.</p>
+      </div>
+
+      <hr />
+
+      <!-- Poll interval -->
+      <div class="form-row">
+        <label for="poll-interval">Poll interval (ms)</label>
+        <input type="number" id="poll-interval" min="100" max="10000" step="100" placeholder="500" />
+      </div>
+
+      <!-- Valve inversion -->
+      <div class="form-row" style="flex-direction:row;align-items:center;gap:10px">
+        <input type="checkbox" id="valve-inverted" style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent)" />
+        <label for="valve-inverted" style="cursor:pointer;color:var(--text)">Inverted relay board (active-low)</label>
+      </div>
+
+      <hr />
+
+      <!-- Valve timings -->
+      <div>
+        <label style="display:block;margin-bottom:8px">Valve actuation times (ms)</label>
+        <div id="timing-table" class="timing-table"></div>
+        <p class="pin-hint">Time each valve takes to physically open or close.</p>
+      </div>
+
+      <hr />
+
+      <!-- Valve default state -->
+      <div>
+        <label style="display:block;margin-bottom:8px">Valve default state <span style="font-weight:400;color:var(--muted)">(applied on start/stop)</span></label>
+        <div id="default-state-table" class="timing-table"></div>
+      </div>
+
+      <hr />
+
+      <!-- Mode selector -->
+      <div>
+        <label style="display:block;margin-bottom:8px">Operating mode</label>
+        <div class="mode-tabs" id="mode-tabs">
+          <button class="mode-tab active" data-mode="sequence"   onclick="selectMode('sequence')">Sequence</button>
+          <button class="mode-tab"        data-mode="alternance" onclick="selectMode('alternance')">Alternance</button>
+        </div>
+      </div>
+
+      <!-- Sequence mode config -->
+      <div id="mode-sequence" class="mode-section active">
+        <div id="seq-high-section"></div>
+        <hr />
+        <div id="seq-low-section"></div>
+      </div>
+
+      <!-- Alternance mode config -->
+      <div id="mode-alternance" class="mode-section">
+        <div id="alt-sequences"></div>
+        <button class="btn-add-step" onclick="addAlternanceSequence()" style="margin-top:8px">+ Add sequence</button>
+      </div>
+
+      <div id="config-feedback" class="feedback"></div>
+      <button class="btn btn-save" onclick="saveConfig()">Save</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

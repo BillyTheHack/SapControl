@@ -1,0 +1,51 @@
+"""
+modes/alternance.py — Timed alternation between N named sequences.
+
+Cycles through sequences[0] → delay → sequences[1] → delay → ... → sequences[N-1] → delay → repeat.
+Each sequence has its own name, steps, and delay_after_ms.
+"""
+
+import logging
+
+from modes.base import BaseModeRunner
+
+logger = logging.getLogger(__name__)
+
+
+class AlternanceModeRunner(BaseModeRunner):
+
+    def run(self) -> None:
+        alt_cfg = self.config.get("modes", {}).get("alternance", {})
+        sequences = alt_cfg.get("sequences", [])
+
+        if len(sequences) < 2:
+            logger.error("Alternance mode requires at least 2 sequences, got %d", len(sequences))
+            return
+
+        while not self.controller.should_stop():
+            for i, seq in enumerate(sequences):
+                if self.controller.should_stop():
+                    break
+                if self.controller.wait_if_paused():
+                    return
+
+                name = seq.get("name", f"Sequence {i + 1}")
+                steps = seq.get("steps", [])
+                delay_ms = seq.get("delay_after_ms", 5000)
+
+                logger.info("Alternance: running '%s'", name)
+                self.controller.set_phase(name)
+
+                self.execute_sequence(steps, abort_on_sensor=None)
+                self.update_shared_state()
+
+                if self.controller.should_stop():
+                    break
+
+                self.controller.set_phase(None)
+                logger.info("Alternance: waiting %d ms after '%s'", delay_ms, name)
+
+                if self.controller.interruptible_sleep(delay_ms / 1000.0):
+                    break
+
+                self.update_shared_state()

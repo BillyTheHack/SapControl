@@ -1,0 +1,153 @@
+{
+  "hardware": {
+    "sensor": {
+      "drive_gpio": 16,
+      "read_gpio": 20,
+      "label": "Water Level Sensor"
+    },
+    "valves": [
+      {
+        "gpio": 14,
+        "label": "Valve Air",
+        "open_ms": 0,
+        "close_ms": 0
+      },
+      {
+        "gpio": 15,
+        "label": "Valve Vacuum",
+        "open_ms": 0,
+        "close_ms": 0
+      },
+      {
+        "gpio": 18,
+        "label": "Valve Water Pump",
+        "open_ms": 0,
+        "close_ms": 0
+      },
+      {
+        "gpio": 23,
+        "label": "Valve Maple Trees",
+        "open_ms": 0,
+        "close_ms": 0
+      },
+      {
+        "gpio": 24,
+        "label": "Water Pump",
+        "open_ms": 0,
+        "close_ms": 0
+      }
+    ],
+    "valve_inverted": true
+  },
+  "settings": {
+    "poll_interval_ms": 100,
+    "default_valve_states": [
+      0,
+      1,
+      0,
+      1,
+      0
+    ]
+  },
+  "mode": "sequence",
+  "modes": {
+    "sequence": {
+      "on_sensor_high": {
+        "name": "Vidange",
+        "steps": [
+          {
+            "valve_index": 3,
+            "state": 0,
+            "delay_after_ms": 0
+          },
+          {
+            "valve_index": 1,
+            "state": 0,
+            "delay_after_ms": 0
+          },
+          {
+            "valve_index": 2,
+            "state": 1,
+            "delay_after_ms": 0
+          },
+          {
+            "valve_index": 4,
+            "state": 1,
+            "delay_after_ms": 0
+          },
+          {
+            "valve_index": 0,
+            "state": 1,
+            "delay_after_ms": 0
+          }
+        ]
+      },
+      "on_sensor_low": {
+        "name": "Remplissage",
+        "steps": [
+          {
+            "valve_index": 4,
+            "state": 0,
+            "delay_after_ms": 0
+          },
+          {
+            "valve_index": 0,
+            "state": 0,
+            "delay_after_ms": 0
+          },
+          {
+            "valve_index": 2,
+            "state": 0,
+            "delay_after_ms": 0
+          },
+          {
+            "valve_index": 1,
+            "state": 1,
+            "delay_after_ms": 0
+          },
+          {
+            "valve_index": 3,
+            "state": 1,
+            "delay_after_ms": 0
+          }
+        ]
+      }
+    },
+    "alternance": {
+      "sequences": [
+        {
+          "name": "Phase A",
+          "steps": [
+            {
+              "valve_index": 0,
+              "state": 1,
+              "delay_after_ms": 0
+            },
+            {
+              "valve_index": 1,
+              "state": 0,
+              "delay_after_ms": 0
+            }
+          ],
+          "delay_after_ms": 5000
+        },
+        {
+          "name": "Phase B",
+          "steps": [
+            {
+              "valve_index": 0,
+              "state": 0,
+              "delay_after_ms": 0
+            },
+            {
+              "valve_index": 1,
+              "state": 1,
+              "delay_after_ms": 0
+            }
+          ],
+          "delay_after_ms": 5000
+        }
+      ]
+    }
+  }
+}
