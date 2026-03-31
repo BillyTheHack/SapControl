@@ -713,10 +713,11 @@ function updateDiagram(c, states, running, phase) {
       phaseEl.textContent = 'Stopped';
       phaseEl.setAttribute('class', 'idle');
     } else if (phase) {
-      phaseEl.textContent = phase + '…';
+      const isActive = phase.includes('(hold)');
+      phaseEl.textContent = isActive ? phase + '…' : phase;
       phaseEl.setAttribute('class', 'active');
     } else {
-      phaseEl.textContent = 'Waiting';
+      phaseEl.textContent = 'Idle';
       phaseEl.setAttribute('class', 'idle');
     }
   }

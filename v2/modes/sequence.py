@@ -75,7 +75,7 @@ class SequenceModeRunner(BaseModeRunner):
                         self.update_shared_state()
                         state = _IDLE
                         hold_until = seq_start + low_min_run if not skip_hold else 0
-                        self.controller.set_phase(None)
+                        self.controller.set_phase(low_name)
                         logger.info("State → IDLE (interrupted)")
                     else:
                         state = _ACTIVE
@@ -86,7 +86,7 @@ class SequenceModeRunner(BaseModeRunner):
                                 logger.info("'%s' hold: %.1fs remaining", high_name, remaining)
                                 self.controller.set_phase(f"{high_name} (hold)")
                                 self._hold_wait(high_min_run, remaining)
-                        self.controller.set_phase(None)
+                        self.controller.set_phase(high_name)
                         self.controller.clear_hold()
                         logger.info("State → ACTIVE")
 
@@ -111,7 +111,7 @@ class SequenceModeRunner(BaseModeRunner):
                         self.update_shared_state()
                         state = _ACTIVE
                         hold_until = seq_start + high_min_run
-                        self.controller.set_phase(None)
+                        self.controller.set_phase(high_name)
                         logger.info("State → ACTIVE (interrupted)")
                     else:
                         state = _IDLE
@@ -122,7 +122,7 @@ class SequenceModeRunner(BaseModeRunner):
                                 logger.info("'%s' hold: %.1fs remaining", low_name, remaining)
                                 self.controller.set_phase(f"{low_name} (hold)")
                                 self._hold_wait(low_min_run, remaining)
-                        self.controller.set_phase(None)
+                        self.controller.set_phase(low_name)
                         self.controller.clear_hold()
                         logger.info("State → IDLE")
 
