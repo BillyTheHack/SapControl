@@ -72,11 +72,19 @@ def post_config():
     if error:
         return jsonify({"error": error}), 422
 
-    if controller.is_running():
+    was_running = controller.is_running()
+    restart = data.get("_restart", False)
+
+    if was_running:
         controller.stop()
 
     config_manager.save(config)
-    return jsonify({"ok": True, "config": config})
+
+    restarted = False
+    if restart and was_running:
+        restarted = controller.start(config)
+
+    return jsonify({"ok": True, "config": config, "restarted": restarted})
 
 
 # ---------------------------------------------------------------------------

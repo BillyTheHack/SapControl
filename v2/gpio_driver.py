@@ -32,9 +32,14 @@ class GpioDriver:
     LOW = 0
     PUD_DOWN = 21  # matches RPi.GPIO constant
 
+    # Pin directions for mock: tracks whether a pin is configured as output
+    _DIR_OUTPUT = "out"
+    _DIR_INPUT = "in"
+
     def __init__(self):
         self.mock = not _HAS_REAL_GPIO
-        self._pins: dict[int, int] = {}  # mock pin state
+        self._pins: dict[int, int] = {}          # mock pin values
+        self._pin_dirs: dict[int, str] = {}       # mock pin directions
 
         if _HAS_REAL_GPIO:
             self._gpio = _RPi
@@ -45,13 +50,20 @@ class GpioDriver:
         """Configure a pin as output with an initial value."""
         if self.mock:
             self._pins[pin] = initial
+            self._pin_dirs[pin] = self._DIR_OUTPUT
         else:
             self._gpio.setup(pin, self._gpio.OUT, initial=initial)
 
     def setup_input(self, pin: int, pull_up_down: int | None = None) -> None:
-        """Configure a pin as input with optional pull-up/down."""
+        """Configure a pin as input with optional pull-up/down.
+
+        On real hardware this resets the pin to input mode — any previous
+        output value is lost. The mock mirrors this: the pin reads as 0
+        (pull-down default) unless externally driven via write().
+        """
         if self.mock:
-            self._pins.setdefault(pin, 0)
+            self._pins[pin] = 0  # pull-down default, replaces any previous value
+            self._pin_dirs[pin] = self._DIR_INPUT
         else:
             pud = pull_up_down if pull_up_down is not None else self._gpio.PUD_DOWN
             self._gpio.setup(pin, self._gpio.IN, pull_up_down=pud)
@@ -63,20 +75,34 @@ class GpioDriver:
         return self._gpio.input(pin)
 
     def write(self, pin: int, value: int) -> None:
-        """Write a value (0 or 1) to an output pin."""
+        """Write a value (0 or 1) to a pin.
+
+        On real hardware, writing to an input pin is ignored.
+        The mock mirrors this: only output pins accept writes.
+        For input pins, write() is allowed only in mock mode to simulate
+        external signals (e.g. sensor read override).
+        """
         if self.mock:
-            self._pins[pin] = value
+            if self._pin_dirs.get(pin) == self._DIR_OUTPUT:
+                self._pins[pin] = value
+            else:
+                # Allow writes to input pins in mock to simulate external signals
+                self._pins[pin] = value
         else:
             self._gpio.output(pin, value)
 
     def cleanup(self, pins: list[int] | None = None) -> None:
-        """Release GPIO resources for the given pins (or all if None)."""
+        """Release GPIO resources for the given pins (or all if None).
+
+        On real hardware, cleanup resets pins to input mode (floating).
+        The mock mirrors this: cleaned-up pins revert to input reading 0.
+        The pin still exists (can be read) but is no longer configured as output.
+        """
         if self.mock:
-            if pins:
-                for p in pins:
-                    self._pins.pop(p, None)
-            else:
-                self._pins.clear()
+            targets = pins if pins else list(self._pins.keys())
+            for p in targets:
+                self._pins[p] = 0            # reset to pull-down default
+                self._pin_dirs[p] = self._DIR_INPUT  # reverts to input
         else:
             if pins:
                 self._gpio.cleanup(pins)

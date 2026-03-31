@@ -35,6 +35,8 @@ async function loadConfig() {
 async function saveConfig() {
   const data = readFormConfig();
   if (!data) return;
+  const restart = document.getElementById('restart-on-save')?.checked ?? false;
+  data._restart = restart;
   try {
     const res = await fetch('/api/config', {
       method: 'POST',
@@ -49,7 +51,8 @@ async function saveConfig() {
     cfg = result.config;
     renderConfigForm(cfg);
     await refreshStatus();
-    showFeedback('ok', 'Configuration saved.');
+    const msg = result.restarted ? 'Configuration saved — task restarted.' : 'Configuration saved.';
+    showFeedback('ok', msg);
   } catch (e) {
     showFeedback('error', 'Network error: ' + e.message);
   }
@@ -433,29 +436,34 @@ function renderOverrideGrid(c, states, overriddenPins) {
   // Sensor drive
   container.appendChild(makeOverrideRow(
     `${sensor.label ?? 'Sensor'} (drive)`, sensor.drive_gpio,
-    states, overriddenPins,
+    states, overriddenPins, false,
   ));
 
   // Sensor read
   container.appendChild(makeOverrideRow(
     `${sensor.label ?? 'Sensor'} (read)`, sensor.read_gpio,
-    states, overriddenPins,
+    states, overriddenPins, false,
   ));
 
-  // Valves
+  // Valves / pump
   valves.forEach(v => {
-    container.appendChild(makeOverrideRow(v.label, v.gpio, states, overriddenPins));
+    const lbl = (v.label ?? '').toLowerCase();
+    const isValve = !(lbl.includes('pump') && !lbl.includes('valve'));
+    container.appendChild(makeOverrideRow(v.label, v.gpio, states, overriddenPins, isValve));
   });
 }
 
-function makeOverrideRow(name, pin, states, overriddenPins) {
+function makeOverrideRow(name, pin, states, overriddenPins, isValve) {
   const isOverridden = overriddenPins.includes(pin);
   const val = states[`gpio_${pin}`];
   const isOn = val === 1;
+  const onLabel = isValve ? 'OPEN' : 'ON';
+  const offLabel = isValve ? 'CLOSED' : 'OFF';
 
   const row = document.createElement('div');
   row.className = 'override-row-item' + (isOverridden ? ' overridden' : '');
   row.id = `ovr-${pin}`;
+  row.dataset.valve = isValve ? '1' : '';
   row.innerHTML = `
     <label class="override-check">
       <input type="checkbox" ${isOverridden ? 'checked' : ''}
@@ -466,7 +474,7 @@ function makeOverrideRow(name, pin, states, overriddenPins) {
       <div class="valve-name">${esc(name)}</div>
       <div class="valve-pin">GPIO ${pin}</div>
     </div>
-    <span class="toggle-label ${isOn ? 'on' : 'off'}" id="ovr-label-${pin}">${isOn ? 'ON' : 'OFF'}</span>
+    <span class="toggle-label ${isOn ? 'on' : 'off'}" id="ovr-label-${pin}">${isOn ? onLabel : offLabel}</span>
     <label class="toggle">
       <input type="checkbox" id="ovr-toggle-${pin}" ${isOn ? 'checked' : ''}
              ${isOverridden ? '' : 'disabled'}
@@ -511,7 +519,9 @@ async function togglePinOverride(pin, checked) {
 
 async function setPinValue(pin, checked) {
   const state = checked ? 1 : 0;
-  updateToggleLabel(`ovr-label-${pin}`, checked);
+  const row = document.getElementById(`ovr-${pin}`);
+  const isValve = row?.dataset.valve === '1';
+  updateToggleLabel(`ovr-label-${pin}`, checked, isValve);
   try {
     await fetch('/api/override/pin', {
       method: 'POST',
@@ -527,10 +537,12 @@ async function clearAllOverrides() {
   } catch (_) {}
 }
 
-function updateToggleLabel(id, isOn) {
+function updateToggleLabel(id, isOn, isValve) {
   const label = document.getElementById(id);
   if (label) {
-    label.textContent = isOn ? 'ON' : 'OFF';
+    const onText = isValve ? 'OPEN' : 'ON';
+    const offText = isValve ? 'CLOSED' : 'OFF';
+    label.textContent = isOn ? onText : offText;
     label.className = `toggle-label ${isOn ? 'on' : 'off'}`;
   }
 }
@@ -551,7 +563,8 @@ function syncOverrideToggles(states, overriddenPins) {
     toggle.checked = isOn;
     toggle.disabled = !isOverridden;
     if (label) {
-      label.textContent = isOn ? 'ON' : 'OFF';
+      const isValve = row?.dataset.valve === '1';
+      label.textContent = isOn ? (isValve ? 'OPEN' : 'ON') : (isValve ? 'CLOSED' : 'OFF');
       label.className = `toggle-label ${isOn ? 'on' : 'off'}`;
     }
     if (row) row.classList.toggle('overridden', isOverridden);

@@ -456,7 +456,14 @@
       </div>
 
       <div id="config-feedback" class="feedback"></div>
-      <button class="btn btn-save" onclick="saveConfig()">Save</button>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-save" onclick="saveConfig()">Save</button>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--text);font-weight:500;font-size:.82rem">
+          <input type="checkbox" id="restart-on-save" checked
+                 style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent)" />
+          Restart task on save
+        </label>
+      </div>
     </div>
   </div>
 

@@ -304,8 +304,8 @@ class Controller:
             logger.exception("Unhandled exception in background task")
         finally:
             self._apply_default_state(valve_pins, inverted, default_states)
-            all_pins = [sensor["drive_gpio"], sensor["read_gpio"]] + valve_pins
-            self._gpio.cleanup(all_pins)
+            # Only cleanup sensor pins — valve pins keep their default state
+            self._gpio.cleanup([sensor["drive_gpio"], sensor["read_gpio"]])
 
             with self._lock:
                 self._gpio_states[f"gpio_{sensor['drive_gpio']}"] = 0
@@ -318,7 +318,7 @@ class Controller:
                 self._hold_remaining = 0.0
                 self._overridden_pins.clear()
 
-            logger.info("Background task stopped, GPIO cleaned up")
+            logger.info("Background task stopped")
 
     def _apply_default_state(self, valve_pins: list[int], inverted: bool, default_states: list[int]) -> None:
         """Set all valves to their configured default state."""
