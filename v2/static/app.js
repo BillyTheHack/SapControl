@@ -65,6 +65,7 @@ async function saveConfig() {
 function renderConfigForm(c) {
   document.getElementById('poll-interval').value = c.settings?.poll_interval_ms ?? 500;
   document.getElementById('valve-inverted').checked = c.hardware?.valve_inverted ?? true;
+  document.getElementById('auto-start').checked = c.settings?.auto_start ?? false;
 
   // Pin table
   const table = document.getElementById('pin-table');
@@ -379,7 +380,7 @@ function readFormConfig() {
   return {
     mode: currentMode,
     hardware: { valve_inverted, valves: valves_update },
-    settings: { poll_interval_ms: interval, default_valve_states },
+    settings: { poll_interval_ms: interval, default_valve_states, auto_start: document.getElementById('auto-start').checked },
     modes: {
       sequence: {
         on_sensor_high: readNamedSequence('on_sensor_high'),

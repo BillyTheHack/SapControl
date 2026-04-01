@@ -208,5 +208,9 @@ def gpio_stream():
 # Entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    controller.apply_initial_default_state(config_manager.load())
+    _startup_config = config_manager.load()
+    controller.apply_initial_default_state(_startup_config)
+    if _startup_config.get("settings", {}).get("auto_start", False):
+        logger.info("Auto-start enabled — starting task on boot")
+        controller.start(_startup_config)
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

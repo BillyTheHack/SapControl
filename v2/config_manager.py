@@ -39,6 +39,7 @@ DEFAULT_CONFIG = {
     "settings": {
         "poll_interval_ms": 500,
         "default_valve_states": [0, 0],
+        "auto_start": False,
     },
     "mode": "sequence",
     "modes": {
@@ -131,9 +132,15 @@ class ConfigManager:
             if err:
                 return None, err
 
+            auto_start = bool(settings_in.get(
+                "auto_start",
+                existing_settings.get("auto_start", False),
+            ))
+
             settings = {
                 "poll_interval_ms": interval,
                 "default_valve_states": default_states,
+                "auto_start": auto_start,
             }
 
             # --- hardware (editable: valve timings + valve_inverted) ---
