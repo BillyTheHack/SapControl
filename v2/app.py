@@ -22,7 +22,7 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template, request
 
-from config_manager import ConfigManager, get_valve_pins
+from config_manager import ConfigManager, get_sensor_top, get_sensor_bottom, get_valve_pins
 from controller import Controller
 from gpio_driver import GpioDriver
 
@@ -139,8 +139,12 @@ def override_pin():
 
     # Validate pin is a known pin
     config = config_manager.load()
-    sensor = config["hardware"]["sensor"]
-    valid_pins = get_valve_pins(config) + [sensor["drive_gpio"], sensor["read_gpio"]]
+    sensor_top = get_sensor_top(config)
+    sensor_bottom = get_sensor_bottom(config)
+    valid_pins = get_valve_pins(config) + [
+        sensor_top["drive_gpio"], sensor_top["read_gpio"],
+        sensor_bottom["drive_gpio"], sensor_bottom["read_gpio"],
+    ]
     if pin not in valid_pins:
         return jsonify({"error": f"GPIO {pin} is not a configured pin"}), 422
 

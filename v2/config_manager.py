@@ -18,11 +18,18 @@ VALID_MODES = ("sequence", "alternance")
 
 DEFAULT_CONFIG = {
     "hardware": {
-        "sensor": {
-            "drive_gpio": 8,
-            "read_gpio": 7,
-            "label": "Water Level Sensor",
-        },
+        "sensors": [
+            {
+                "drive_gpio": 8,
+                "read_gpio": 7,
+                "label": "Top Sensor",
+            },
+            {
+                "drive_gpio": 9,
+                "read_gpio": 11,
+                "label": "Bottom Sensor",
+            },
+        ],
         "valves": [
             {"gpio": 27, "label": "Inlet Valve", "open_ms": 500, "close_ms": 500},
             {"gpio": 22, "label": "Outlet Valve", "open_ms": 500, "close_ms": 500},
@@ -153,7 +160,7 @@ class ConfigManager:
                 valves.append(v)
 
             hardware = {
-                "sensor": hw["sensor"],  # read-only
+                "sensors": hw["sensors"],  # read-only
                 "valves": valves,
                 "valve_inverted": valve_inverted,
             }
@@ -220,6 +227,16 @@ class ConfigManager:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def get_sensor_top(config: dict) -> dict:
+    """Return the top sensor config (index 0). HIGH = tank full."""
+    return config["hardware"]["sensors"][0]
+
+
+def get_sensor_bottom(config: dict) -> dict:
+    """Return the bottom sensor config (index 1). HIGH = tank empty."""
+    return config["hardware"]["sensors"][1]
+
+
 def get_valve_pins(config: dict) -> list[int]:
     """Extract ordered list of valve GPIO pin numbers from config."""
     return [v["gpio"] for v in config["hardware"]["valves"]]

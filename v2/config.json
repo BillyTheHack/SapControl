@@ -1,10 +1,17 @@
 {
   "hardware": {
-    "sensor": {
-      "drive_gpio": 16,
-      "read_gpio": 20,
-      "label": "Water Level Sensor"
-    },
+    "sensors": [
+      {
+        "drive_gpio": 16,
+        "read_gpio": 20,
+        "label": "Top Sensor"
+      },
+      {
+        "drive_gpio": 21,
+        "read_gpio": 26,
+        "label": "Bottom Sensor"
+      }
+    ],
     "valves": [
       {
         "gpio": 14,
@@ -42,10 +49,10 @@
   "settings": {
     "poll_interval_ms": 100,
     "default_valve_states": [
-      0,
       1,
       0,
-      1,
+      0,
+      0,
       0
     ]
   },
@@ -56,63 +63,25 @@
         "name": "Vidange",
         "steps": [
           {
-            "valve_index": 3,
-            "state": 0,
-            "delay_after_ms": 0
-          },
-          {
-            "valve_index": 1,
-            "state": 0,
-            "delay_after_ms": 0
-          },
-          {
-            "valve_index": 2,
-            "state": 1,
-            "delay_after_ms": 0
-          },
-          {
-            "valve_index": 4,
-            "state": 1,
-            "delay_after_ms": 0
-          },
-          {
             "valve_index": 0,
             "state": 1,
             "delay_after_ms": 0
           }
         ],
-        "min_run_seconds": 0
+        "min_run_seconds": 0,
+        "min_run_extra": true
       },
       "on_sensor_low": {
         "name": "Remplissage",
         "steps": [
           {
-            "valve_index": 4,
-            "state": 0,
-            "delay_after_ms": 0
-          },
-          {
             "valve_index": 0,
             "state": 0,
             "delay_after_ms": 0
-          },
-          {
-            "valve_index": 2,
-            "state": 0,
-            "delay_after_ms": 0
-          },
-          {
-            "valve_index": 1,
-            "state": 1,
-            "delay_after_ms": 0
-          },
-          {
-            "valve_index": 3,
-            "state": 1,
-            "delay_after_ms": 0
           }
         ],
-        "min_run_seconds": 10
+        "min_run_seconds": 0,
+        "min_run_extra": true
       }
     },
     "alternance": {
@@ -132,7 +101,8 @@
             }
           ],
           "min_run_seconds": 0,
-          "delay_after_ms": 5000
+          "min_run_extra": true,
+          "delay_after_ms": 3000
         },
         {
           "name": "Phase B",
@@ -149,7 +119,8 @@
             }
           ],
           "min_run_seconds": 0,
-          "delay_after_ms": 5000
+          "min_run_extra": true,
+          "delay_after_ms": 3000
         }
       ]
     }

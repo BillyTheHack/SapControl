@@ -9,6 +9,7 @@ let cfg = null;           // current config from server
 let sseSource = null;
 let currentMode = 'sequence';
 let lastStatus = {};      // previous SSE payload for diff
+let lastHighSensor = null; // 'top' | 'bottom' | null — last sensor that went HIGH
 
 // =========================================================================
 // Init
@@ -68,9 +69,12 @@ function renderConfigForm(c) {
   // Pin table
   const table = document.getElementById('pin-table');
   table.innerHTML = '';
-  const sensor = c.hardware?.sensor ?? {};
-  table.appendChild(makePinRow('Sensor (drive)', sensor.drive_gpio, sensor.label ?? 'Sensor'));
-  table.appendChild(makePinRow('Sensor (read)', sensor.read_gpio, sensor.label ?? 'Sensor'));
+  const sensors = c.hardware?.sensors ?? [];
+  sensors.forEach((s, i) => {
+    const role = i === 0 ? 'Top sensor' : 'Bottom sensor';
+    table.appendChild(makePinRow(`${role} (drive)`, s.drive_gpio, s.label ?? role));
+    table.appendChild(makePinRow(`${role} (read)`, s.read_gpio, s.label ?? role));
+  });
   const valves = c.hardware?.valves ?? [];
   valves.forEach((v) => {
     table.appendChild(makePinRow('Valve', v.gpio, v.label));
@@ -430,20 +434,20 @@ function renderOverrideGrid(c, states, overriddenPins) {
   container.innerHTML = '';
   if (!c) return;
 
-  const sensor = c.hardware?.sensor ?? {};
+  const sensors = c.hardware?.sensors ?? [];
   const valves = c.hardware?.valves ?? [];
 
-  // Sensor drive
-  container.appendChild(makeOverrideRow(
-    `${sensor.label ?? 'Sensor'} (drive)`, sensor.drive_gpio,
-    states, overriddenPins, false,
-  ));
-
-  // Sensor read
-  container.appendChild(makeOverrideRow(
-    `${sensor.label ?? 'Sensor'} (read)`, sensor.read_gpio,
-    states, overriddenPins, false,
-  ));
+  // Sensor pins
+  sensors.forEach(s => {
+    container.appendChild(makeOverrideRow(
+      `${s.label ?? 'Sensor'} (drive)`, s.drive_gpio,
+      states, overriddenPins, false,
+    ));
+    container.appendChild(makeOverrideRow(
+      `${s.label ?? 'Sensor'} (read)`, s.read_gpio,
+      states, overriddenPins, false,
+    ));
+  });
 
   // Valves / pump
   valves.forEach(v => {
@@ -573,9 +577,10 @@ function syncOverrideToggles(states, overriddenPins) {
 }
 
 function getAllPins(c) {
-  const sensor = c.hardware?.sensor ?? {};
+  const sensors = c.hardware?.sensors ?? [];
   const valves = c.hardware?.valves ?? [];
-  return [sensor.drive_gpio, sensor.read_gpio, ...valves.map(v => v.gpio)];
+  const sensorPins = sensors.flatMap(s => [s.drive_gpio, s.read_gpio]);
+  return [...sensorPins, ...valves.map(v => v.gpio)];
 }
 
 // =========================================================================
@@ -687,22 +692,39 @@ const VALVE_DIAGRAM_MAP = [
 
 function updateDiagram(c, states, running, phase) {
   if (!c) return;
-  const sensor = c.hardware?.sensor ?? {};
+  const sensors = c.hardware?.sensors ?? [];
   const valves = c.hardware?.valves ?? [];
-  const sensorVal = states[`gpio_${sensor.read_gpio}`];
-  const circuitClosed = sensorVal === 1;
 
-  diagClass('d-sensor-top', circuitClosed ? 'on' : '');
-  diagClass('d-label-sensor-top', circuitClosed ? 'on' : '');
-  diagClass('d-sensor-bot', !circuitClosed && running ? 'on' : '');
-  diagClass('d-label-sensor-bot', !circuitClosed && running ? 'on' : '');
+  // Top sensor (index 0): HIGH = tank full
+  const topSensor = sensors[0] ?? {};
+  const topVal = states[`gpio_${topSensor.read_gpio}`];
+  const topHigh = topVal === 1;
+
+  // Bottom sensor (index 1): HIGH = tank empty
+  const bottomSensor = sensors[1] ?? {};
+  const bottomVal = states[`gpio_${bottomSensor.read_gpio}`];
+  const bottomHigh = bottomVal === 1;
+
+  // Track which sensor was last HIGH — this persists until the other sensor fires
+  if (!running) {
+    lastHighSensor = null;
+  } else {
+    if (topHigh) lastHighSensor = 'top';
+    else if (bottomHigh) lastHighSensor = 'bottom';
+  }
+
+  diagClass('d-sensor-top', topHigh ? 'on' : '');
+  diagClass('d-label-sensor-top', topHigh ? 'on' : '');
+  diagClass('d-sensor-bot', bottomHigh ? 'on' : '');
+  diagClass('d-label-sensor-bot', bottomHigh ? 'on' : '');
 
   const waterEl = document.getElementById('d-water');
   if (waterEl) {
     let waterY, waterH;
-    if (!running)          { waterY = 288; waterH = 10; }
-    else if (circuitClosed){ waterY = 84;  waterH = 214; }
-    else                   { waterY = 260; waterH = 38; }
+    if (!running)                    { waterY = 288; waterH = 10; }
+    else if (lastHighSensor === 'top')   { waterY = 84;  waterH = 214; }
+    else if (lastHighSensor === 'bottom'){ waterY = 288; waterH = 10; }
+    else                             { waterY = 200; waterH = 98; }  // unknown, show mid
     waterEl.setAttribute('y', waterY);
     waterEl.setAttribute('height', waterH);
   }

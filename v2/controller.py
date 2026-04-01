@@ -16,7 +16,7 @@ import logging
 import threading
 
 from gpio_driver import GpioDriver
-from config_manager import get_valve_pins, get_valve_timings
+from config_manager import get_sensor_top, get_sensor_bottom, get_valve_pins, get_valve_timings
 from task_logger import task_log
 
 logger = logging.getLogger(__name__)
@@ -188,6 +188,9 @@ class Controller:
 
         inverted = config["hardware"].get("valve_inverted", True)
         valve_pins = get_valve_pins(config)
+        sensor_top = get_sensor_top(config)
+        sensor_bottom = get_sensor_bottom(config)
+        sensor_read_pins = {sensor_top["read_gpio"], sensor_bottom["read_gpio"]}
 
         # Determine if this is a valve pin (needs inversion) or sensor pin
         if pin in valve_pins:
@@ -199,8 +202,7 @@ class Controller:
             task_log.info("OVERRIDE  %s (GPIO%d) → %s", label, pin, "open" if state else "closed")
         else:
             # Sensor pin — write directly (mock only for read pin)
-            sensor = config["hardware"]["sensor"]
-            if pin == sensor["read_gpio"] and not self._gpio.mock:
+            if pin in sensor_read_pins and not self._gpio.mock:
                 logger.warning("Sensor read override ignored on real hardware (input pin)")
                 # Still add to override set so mode runner uses overridden value
                 self.set_gpio_state(pin, state)
@@ -281,19 +283,23 @@ class Controller:
         valve_pins = get_valve_pins(config)
         inverted = config["hardware"].get("valve_inverted", True)
         default_states = config["settings"].get("default_valve_states", [0] * len(valve_pins))
-        sensor = config["hardware"]["sensor"]
+        sensor_top = get_sensor_top(config)
+        sensor_bottom = get_sensor_bottom(config)
 
         # --- GPIO setup ---
-        self._gpio.setup_output(sensor["drive_gpio"], initial=GpioDriver.HIGH)
-        self._gpio.setup_input(sensor["read_gpio"])
+        for sensor in (sensor_top, sensor_bottom):
+            self._gpio.setup_output(sensor["drive_gpio"], initial=GpioDriver.HIGH)
+            self._gpio.setup_input(sensor["read_gpio"])
         for pin in valve_pins:
             self._gpio.setup_output(pin, initial=GpioDriver.valve_level(0, inverted))
 
         # Apply default state
         self._apply_default_state(valve_pins, inverted, default_states)
 
-        logger.info("Task running [%s] — valves: %s, inverted: %s",
-                     mode, [f"GPIO{p}" for p in valve_pins], inverted)
+        logger.info("Task running [%s] — valves: %s, inverted: %s, top sensor: GPIO%d/GPIO%d, bottom sensor: GPIO%d/GPIO%d",
+                     mode, [f"GPIO{p}" for p in valve_pins], inverted,
+                     sensor_top["drive_gpio"], sensor_top["read_gpio"],
+                     sensor_bottom["drive_gpio"], sensor_bottom["read_gpio"])
 
         try:
             if mode == "alternance":
@@ -305,11 +311,14 @@ class Controller:
         finally:
             self._apply_default_state(valve_pins, inverted, default_states)
             # Only cleanup sensor pins — valve pins keep their default state
-            self._gpio.cleanup([sensor["drive_gpio"], sensor["read_gpio"]])
+            sensor_pins = [sensor_top["drive_gpio"], sensor_top["read_gpio"],
+                           sensor_bottom["drive_gpio"], sensor_bottom["read_gpio"]]
+            self._gpio.cleanup(sensor_pins)
 
             with self._lock:
-                self._gpio_states[f"gpio_{sensor['drive_gpio']}"] = 0
-                self._gpio_states[f"gpio_{sensor['read_gpio']}"] = 0
+                for sensor in (sensor_top, sensor_bottom):
+                    self._gpio_states[f"gpio_{sensor['drive_gpio']}"] = 0
+                    self._gpio_states[f"gpio_{sensor['read_gpio']}"] = 0
                 for pin, ds in zip(valve_pins, default_states):
                     self._gpio_states[f"gpio_{pin}"] = ds
                 self._running = False

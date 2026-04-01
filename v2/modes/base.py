@@ -11,7 +11,7 @@ import time
 from abc import ABC, abstractmethod
 
 from gpio_driver import GpioDriver
-from config_manager import get_valve_pins, get_valve_timings
+from config_manager import get_sensor_top, get_sensor_bottom, get_valve_pins, get_valve_timings
 
 logger = logging.getLogger(__name__)
 
@@ -28,17 +28,25 @@ class BaseModeRunner(ABC):
         self.timings = get_valve_timings(config)
         self.inverted = config["hardware"].get("valve_inverted", True)
         self.interval = config["settings"].get("poll_interval_ms", 500) / 1000.0
-        self.sensor_drive = config["hardware"]["sensor"]["drive_gpio"]
-        self.sensor_read = config["hardware"]["sensor"]["read_gpio"]
+        sensor_top = get_sensor_top(config)
+        sensor_bottom = get_sensor_bottom(config)
+        self.sensor_top_drive = sensor_top["drive_gpio"]
+        self.sensor_top_read = sensor_top["read_gpio"]
+        self.sensor_bottom_drive = sensor_bottom["drive_gpio"]
+        self.sensor_bottom_read = sensor_bottom["read_gpio"]
 
     @abstractmethod
     def run(self) -> None:
         """Main loop — called by controller._run() in background thread."""
         ...
 
-    def read_sensor(self) -> int:
-        """Read sensor pin, respecting overrides."""
-        return self.controller.read_sensor(self.sensor_read)
+    def read_sensor_top(self) -> int:
+        """Read top sensor pin, respecting overrides. HIGH = tank full."""
+        return self.controller.read_sensor(self.sensor_top_read)
+
+    def read_sensor_bottom(self) -> int:
+        """Read bottom sensor pin, respecting overrides. HIGH = tank empty."""
+        return self.controller.read_sensor(self.sensor_bottom_read)
 
     def execute_sequence(self, steps: list[dict], abort_on_sensor: int | None = None,
                          hold_info: tuple[float, float] | None = None) -> bool:
@@ -100,10 +108,13 @@ class BaseModeRunner(ABC):
         For overridden pins, preserve the user's value in gpio_states
         rather than reading from hardware.
         """
-        sensor_val = self.read_sensor()
+        top_val = self.read_sensor_top()
+        bottom_val = self.read_sensor_bottom()
         updates = {
-            f"gpio_{self.sensor_drive}": GpioDriver.HIGH,
-            f"gpio_{self.sensor_read}": sensor_val,
+            f"gpio_{self.sensor_top_drive}": GpioDriver.HIGH,
+            f"gpio_{self.sensor_top_read}": top_val,
+            f"gpio_{self.sensor_bottom_drive}": GpioDriver.HIGH,
+            f"gpio_{self.sensor_bottom_read}": bottom_val,
         }
         for pin in self.valve_pins:
             if self.controller.is_pin_overridden(pin):
