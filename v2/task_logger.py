@@ -11,6 +11,7 @@ Separate from the application logger — no Flask noise, no GPIO debug.
 """
 
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 _LOG_PATH = Path(__file__).parent / "task.log"
@@ -20,6 +21,7 @@ task_log = logging.getLogger("task_events")
 task_log.setLevel(logging.INFO)
 task_log.propagate = False  # don't bubble up to root logger
 
-_handler = logging.FileHandler(_LOG_PATH)
+# Rotate at 50 MB, keep 7 backups (roughly one week of history)
+_handler = RotatingFileHandler(_LOG_PATH, maxBytes=50 * 1024 * 1024, backupCount=7)
 _handler.setFormatter(logging.Formatter("%(asctime)s  %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
 task_log.addHandler(_handler)
